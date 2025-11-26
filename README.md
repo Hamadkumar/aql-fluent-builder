@@ -1,6 +1,11 @@
 # AQL Fluent Builder
 
-A powerful, type-safe, and fluent query builder for ArangoDB AQL queries in TypeScript. 
+[![npm version](https://img.shields.io/npm/v/aql-fluent-builder.svg)](https://www.npmjs.com/package/aql-fluent-builder)
+[![npm downloads](https://img.shields.io/npm/dm/aql-fluent-builder.svg)](https://www.npmjs.com/package/aql-fluent-builder)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+
+A powerful, **type-safe**, and **fluent query builder** for **ArangoDB AQL queries** in TypeScript. Build complex graph traversals, edge collections, and database queries with full compile-time type checking and IntelliSense support.
 
 This library allows you to construct complex AQL queries programmatically with full TypeScript support, ensuring type safety for collections, fields, and operations. It also supports JSON serialization of queries and automatic OpenAPI 3.0 specification generation.
 

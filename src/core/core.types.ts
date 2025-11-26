@@ -24,7 +24,7 @@ export interface AqlQuery<Schema extends DatabaseSchema = any> {
   /** SORT clauses */
   sorts?: AqlSort[];
   /** RETURN clause */
-  returnValue?: unknown;
+  returnValue?: AqlValue;
   /** Limit clause */
   limit?: number;
   /** Offset clause */
@@ -43,6 +43,12 @@ export interface AqlQuery<Schema extends DatabaseSchema = any> {
   traversals?: AqlTraverse[];
   prunes?: AqlPrune[];
   windows?: AqlWindow[];
+  joins?: AqlJoin[];
+}
+
+export interface AqlJoin {
+  variable: string;
+  source: string | AqlRange | AqlGraph;
 }
 
 /**
@@ -71,7 +77,7 @@ export interface AqlGraph {
  */
 export interface AqlOperation {
   type: 'INSERT' | 'REPLACE' | 'REMOVE' | 'UPDATE';
-  document: unknown;
+  document: AqlValue;
   collection?: string;
   variable?: string;
 }
@@ -201,7 +207,7 @@ export interface GeneratedAqlQuery {
  */
 export interface AqlLet {
   variable: string;
-  expression: unknown;  // Can be a subquery or expression
+  expression: AqlValue;  // Can be a subquery or expression
 }
 
 /**
@@ -210,7 +216,7 @@ export interface AqlLet {
 export interface AqlAggregation {
   name: string;
   function: 'COUNT' | 'SUM' | 'AVERAGE' | 'AVG' | 'MIN' | 'MAX' | 'COLLECT' | 'KEEP';
-  expression?: unknown;
+  expression?: AqlValue;
 }
 
 /**
@@ -231,16 +237,16 @@ export interface AqlAggregateFunction extends AqlFunctionCall {
 /**
  * Base generic type for safe handling of unknown data
  */
-export type SafeUnknown = unknown;
+export type AqlValue = string | number | boolean | null | Record<string, any> | AqlExpression;
 
 /**
  * Represents an UPSERT operation
  */
 export interface AqlUpsert {
   type: 'UPSERT';
-  searchDoc: SafeUnknown;
-  insertDoc: SafeUnknown;
-  updateDoc: SafeUnknown;
+  searchDoc: AqlValue;
+  insertDoc: AqlValue;
+  updateDoc: AqlValue;
   collection: string;
 }
 
@@ -249,8 +255,8 @@ export interface AqlUpsert {
  */
 export interface AqlUpdateEnhanced {
   type: 'UPDATE';
-  document: SafeUnknown;
-  updateFields: Record<string, SafeUnknown>; // Specific fields to update
+  document: AqlValue;
+  updateFields: Record<string, AqlValue>; // Specific fields to update
   collection: string;
   variable?: string;
   oldReference?: boolean; // Use OLD reference
@@ -298,7 +304,7 @@ export interface AqlFunctionCallEnhanced {
   type: 'function';
   name: string;
   args: AqlExpression[];
-  options?: Record<string, SafeUnknown>; // For functions like REGEX
+  options?: Record<string, AqlValue>; // For functions like REGEX
 }
 
 /**
@@ -386,7 +392,7 @@ export interface AqlSearch {
   type: 'search';
   view: string;
   conditions: AqlExpression[];
-  options?: Record<string, SafeUnknown>;
+  options?: Record<string, AqlValue>;
 }
 
 /**
@@ -441,9 +447,9 @@ export interface AqlIn {
  * Enhanced COLLECT with KEEP modifier
  */
 export interface AqlCollectWithKeep {
-  variables: Record<string, SafeUnknown>;
+  variables: Record<string, AqlValue>;
   into?: string;
-  aggregate?: Record<string, SafeUnknown>;
+  aggregate?: Record<string, AqlValue>;
   keep?: string[]; // Fields to keep from grouped documents
 }
 
@@ -466,7 +472,7 @@ export interface AqlCase {
   type: 'case';
   expression: AqlExpression;
   branches: Array<{
-    value: SafeUnknown;
+    value: AqlValue;
     result: AqlExpression;
   }>;
   defaultResult?: AqlExpression;
@@ -500,7 +506,7 @@ export interface AqlQueryRequest<Schema extends DatabaseSchema = any> {
   operations?: AqlOperation[];
   collects?: AqlCollect[];
   sorts?: AqlSort[];
-  returnValue?: unknown;
+  returnValue?: AqlValue;
   limit?: number;
   offset?: number;
   lets?: AqlLet[];

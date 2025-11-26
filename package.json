@@ -1,7 +1,7 @@
 {
   "name": "aql-fluent-builder",
   "version": "1.0.0",
-  "description": "TypeScript AQL query builder for ArangoDB",
+  "description": "Type-safe, fluent AQL query builder for ArangoDB with graph traversal, edge repositories, and OpenAPI spec generation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -11,7 +11,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/username/aql-fluent-builder.git"
+    "url": "git+https://github.com/Hamadkumar/aql-fluent-builder.git"
+  },
+  "homepage": "https://github.com/Hamadkumar/aql-fluent-builder#readme",
+  "bugs": {
+    "url": "https://github.com/Hamadkumar/aql-fluent-builder/issues"
   },
   "scripts": {
     "build": "tsc",
@@ -23,13 +27,29 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "arangodb",
     "aql",
+    "arangodb",
     "query-builder",
     "typescript",
-    "database"
+    "arango",
+    "database",
+    "nosql",
+    "graph-database",
+    "query",
+    "builder",
+    "fluent-api",
+    "type-safe",
+    "arango-query-language",
+    "graph-traversal",
+    "edge-collection",
+    "openapi",
+    "aql-builder",
+    "aql-query"
   ],
-  "author": "hamadkumar",
+  "author": {
+    "name": "Hamad Kumar",
+    "email": "hamadkumar.k@gmail.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.0",

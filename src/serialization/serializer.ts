@@ -1,6 +1,6 @@
 import { AQLBuilder } from '../core/aql.builder';
 import { ExpressionBuilder } from '../core/expression.builder';
-import { AqlQuery, SafeUnknown } from '../core/core.types';
+import { AqlQuery } from '../core/core.types';
 import { AqlQueryJson } from './json.types';
 
 /**

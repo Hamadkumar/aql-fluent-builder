@@ -12,14 +12,14 @@ import {
   AqlLiteral,
   AqlRegex,
   AqlUnset,
-  SafeUnknown
+  AqlValue
 } from './core.types';
 import { Path } from '../schema/types';
 
 /**
  * Builder class for creating AQL expressions with chainable methods
  */
-export class ExpressionBuilder {
+export class ExpressionBuilder<T = any> {
   constructor(private readonly expression: AqlExpression) { }
 
   /**
@@ -37,9 +37,23 @@ export class ExpressionBuilder {
   }
 
   /**
+   * Type-safe property access
+   */
+  get<K extends keyof T>(name: K): ExpressionBuilder<T[K]> {
+    const current = this.expression;
+    if (typeof current === 'string') {
+      return new ExpressionBuilder<T[K]>(`${current}.${String(name)}` as any);
+    }
+    if (typeof current === 'object' && current !== null && (current as any).type === 'reference') {
+      return new ExpressionBuilder<T[K]>(`${(current as any).name}.${String(name)}` as any);
+    }
+    throw new Error('Cannot access property on complex expression');
+  }
+
+  /**
    * Equals comparison (==)
    */
-  eq(value: SafeUnknown): ExpressionBuilder {
+  eq(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '==',
@@ -51,7 +65,7 @@ export class ExpressionBuilder {
   /**
    * Not equals comparison (!=)
    */
-  neq(value: SafeUnknown): ExpressionBuilder {
+  neq(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '!=',
@@ -63,7 +77,7 @@ export class ExpressionBuilder {
   /**
    * Less than comparison (<)
    */
-  lt(value: SafeUnknown): ExpressionBuilder {
+  lt(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '<',
@@ -75,7 +89,7 @@ export class ExpressionBuilder {
   /**
    * Less than or equal comparison (<=)
    */
-  lte(value: SafeUnknown): ExpressionBuilder {
+  lte(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '<=',
@@ -87,7 +101,7 @@ export class ExpressionBuilder {
   /**
    * Greater than comparison (>)
    */
-  gt(value: SafeUnknown): ExpressionBuilder {
+  gt(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '>',
@@ -99,7 +113,7 @@ export class ExpressionBuilder {
   /**
    * Greater than or equal comparison (>=)
    */
-  gte(value: SafeUnknown): ExpressionBuilder {
+  gte(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '>=',
@@ -109,9 +123,17 @@ export class ExpressionBuilder {
   }
 
   /**
+   * Create a reference to a property of this expression
+   * @deprecated Use .get() instead
+   */
+  property(name: string): ExpressionBuilder<any> {
+    return this.get(name as any);
+  }
+
+  /**
    * Logical AND (&&)
    */
-  and(other: ExpressionBuilder | AqlExpression): ExpressionBuilder {
+  and(other: ExpressionBuilder | AqlExpression): ExpressionBuilder<boolean> {
     const rightExpr = other instanceof ExpressionBuilder ? other.expression : other;
     return new ExpressionBuilder({
       type: 'binary',
@@ -124,7 +146,7 @@ export class ExpressionBuilder {
   /**
    * Logical OR (||)
    */
-  or(other: ExpressionBuilder | AqlExpression): ExpressionBuilder {
+  or(other: ExpressionBuilder | AqlExpression): ExpressionBuilder<boolean> {
     const rightExpr = other instanceof ExpressionBuilder ? other.expression : other;
     return new ExpressionBuilder({
       type: 'binary',
@@ -137,7 +159,7 @@ export class ExpressionBuilder {
   /**
    * Addition (+)
    */
-  add(value: SafeUnknown): ExpressionBuilder {
+  add(value: AqlValue | ExpressionBuilder): ExpressionBuilder<number> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '+',
@@ -149,7 +171,7 @@ export class ExpressionBuilder {
   /**
    * Subtraction (-)
    */
-  sub(value: SafeUnknown): ExpressionBuilder {
+  sub(value: AqlValue | ExpressionBuilder): ExpressionBuilder<number> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '-',
@@ -161,7 +183,7 @@ export class ExpressionBuilder {
   /**
    * Multiplication (*)
    */
-  times(value: SafeUnknown): ExpressionBuilder {
+  times(value: AqlValue | ExpressionBuilder): ExpressionBuilder<number> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '*',
@@ -173,7 +195,7 @@ export class ExpressionBuilder {
   /**
    * Division (/)
    */
-  div(value: SafeUnknown): ExpressionBuilder {
+  div(value: AqlValue | ExpressionBuilder): ExpressionBuilder<number> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '/',
@@ -185,7 +207,7 @@ export class ExpressionBuilder {
   /**
    * Modulo (%)
    */
-  mod(value: SafeUnknown): ExpressionBuilder {
+  mod(value: AqlValue | ExpressionBuilder): ExpressionBuilder<number> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '%',
@@ -197,23 +219,23 @@ export class ExpressionBuilder {
   /**
    * IN operator
    */
-  in(values: SafeUnknown[]): ExpressionBuilder {
+  in(values: AqlValue[] | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: 'IN',
       left: this.expression,
-      right: { type: 'literal', value: values }
+      right: Array.isArray(values) ? { type: 'literal', value: values } : toExpression(values)
     });
   }
 
   /**
    * Ternary conditional - then branch
    */
-  then(value: SafeUnknown): TernaryBuilder {
+  then(value: AqlValue | ExpressionBuilder): TernaryBuilder {
     return new TernaryBuilder(this.expression, toExpression(value));
   }
 
-  all(condition: ExpressionBuilder): ExpressionBuilder {
+  all(condition: ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'all',
       expression: this.expression,
@@ -221,7 +243,7 @@ export class ExpressionBuilder {
     } as AqlAllOperator);
   }
 
-  any(condition: ExpressionBuilder): ExpressionBuilder {
+  any(condition: ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'any',
       expression: this.expression,
@@ -233,22 +255,22 @@ export class ExpressionBuilder {
   /**
   * NOT IN operator
   */
-  notIn(values: SafeUnknown[]): ExpressionBuilder {
+  notIn(values: AqlValue[] | ExpressionBuilder): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: 'NOT IN',
       left: this.expression,
-      right: {
+      right: Array.isArray(values) ? {
         type: 'literal',
         value: values
-      }
+      } : toExpression(values)
     });
   }
 
   /**
   * LIKE operator for string patterns
   */
-  like(pattern: string, caseInsensitive = false): ExpressionBuilder {
+  like(pattern: string, caseInsensitive = false): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'like',
       expression: this.expression,
@@ -260,7 +282,7 @@ export class ExpressionBuilder {
   /**
   * Regex operator for pattern matching
   */
-  regex(pattern: string, flags?: string): ExpressionBuilder {
+  regex(pattern: string, flags?: string): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'regex',
       expression: this.expression,
@@ -274,10 +296,20 @@ export class ExpressionBuilder {
 /**
  * Create a reference to a property or variable
  */
-export function ref<T = SafeUnknown>(name: Path<T> | `${string}.${Path<T>}`): ExpressionBuilder {
-  return new ExpressionBuilder({
+export function ref<T = AqlValue>(name: Path<T> | `${string}.${Path<T>}`): ExpressionBuilder<T> {
+  return new ExpressionBuilder<T>({
     type: 'reference',
     name: name as string
+  });
+}
+
+/**
+ * Create a reference to a variable
+ */
+export function variable<T = any>(name: string): ExpressionBuilder<T> {
+  return new ExpressionBuilder<T>({
+    type: 'reference',
+    name
   });
 }
 
@@ -301,7 +333,7 @@ export function str(value: string): ExpressionBuilder {
 /**
  * FLOOR function
  */
-export function FLOOR(expr: SafeUnknown): ExpressionBuilder {
+export function FLOOR(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'FLOOR',
@@ -323,7 +355,7 @@ export function RAND(): ExpressionBuilder {
 /**
  * CONCAT function
  */
-export function CONCAT(...args: SafeUnknown[]): ExpressionBuilder {
+export function CONCAT(...args: (AqlValue | ExpressionBuilder)[]): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'CONCAT',
@@ -334,7 +366,7 @@ export function CONCAT(...args: SafeUnknown[]): ExpressionBuilder {
 /**
  * TO_STRING function
  */
-export function TO_STRING(expr: SafeUnknown): ExpressionBuilder {
+export function TO_STRING(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'TO_STRING',
@@ -358,7 +390,7 @@ export function range(start: number, end: number) {
  * COUNT(1) counts all documents
  * COUNT(expr) counts non-null values
  */
-export function COUNT(expr: SafeUnknown = 1): ExpressionBuilder {
+export function COUNT(expr: AqlValue | ExpressionBuilder = 1): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'COUNT',
@@ -370,7 +402,7 @@ export function COUNT(expr: SafeUnknown = 1): ExpressionBuilder {
  * SUM aggregate function - sums numeric values
  * SUM(values[*].amount)
  */
-export function SUM(expr: SafeUnknown): ExpressionBuilder {
+export function SUM(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'SUM',
@@ -382,7 +414,7 @@ export function SUM(expr: SafeUnknown): ExpressionBuilder {
  * AVERAGE aggregate function - calculates average
  * Also works as AVG()
  */
-export function AVERAGE(expr: SafeUnknown): ExpressionBuilder {
+export function AVERAGE(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'AVERAGE',
@@ -393,14 +425,14 @@ export function AVERAGE(expr: SafeUnknown): ExpressionBuilder {
 /**
  * AVG - alias for AVERAGE
  */
-export function AVG(expr: SafeUnknown): ExpressionBuilder {
+export function AVG(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return AVERAGE(expr);
 }
 
 /**
  * MIN aggregate function - finds minimum value
  */
-export function MIN(expr: SafeUnknown): ExpressionBuilder {
+export function MIN(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'MIN',
@@ -411,7 +443,7 @@ export function MIN(expr: SafeUnknown): ExpressionBuilder {
 /**
  * MAX aggregate function - finds maximum value
  */
-export function MAX(expr: SafeUnknown): ExpressionBuilder {
+export function MAX(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'MAX',
@@ -423,7 +455,7 @@ export function MAX(expr: SafeUnknown): ExpressionBuilder {
  * SUBSTRING function - extracts substring
  * SUBSTRING(string, start, length)
  */
-export function SUBSTRING(str: SafeUnknown, start: SafeUnknown, length?: SafeUnknown): ExpressionBuilder {
+export function SUBSTRING(str: AqlValue | ExpressionBuilder, start: AqlValue | ExpressionBuilder, length?: AqlValue | ExpressionBuilder): ExpressionBuilder {
   const args = length ? [toExpression(str), toExpression(start), toExpression(length)]
     : [toExpression(str), toExpression(start)];
   return new ExpressionBuilder({
@@ -436,7 +468,7 @@ export function SUBSTRING(str: SafeUnknown, start: SafeUnknown, length?: SafeUnk
 /**
  * LENGTH function - returns length of string/array
  */
-export function LENGTH(expr: SafeUnknown): ExpressionBuilder {
+export function LENGTH(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'LENGTH',
@@ -447,7 +479,7 @@ export function LENGTH(expr: SafeUnknown): ExpressionBuilder {
 /**
  * LOWER function - converts to lowercase
  */
-export function LOWER(expr: SafeUnknown): ExpressionBuilder {
+export function LOWER(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'LOWER',
@@ -458,7 +490,7 @@ export function LOWER(expr: SafeUnknown): ExpressionBuilder {
 /**
  * UPPER function - converts to uppercase
  */
-export function UPPER(expr: SafeUnknown): ExpressionBuilder {
+export function UPPER(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'UPPER',
@@ -470,7 +502,7 @@ export function UPPER(expr: SafeUnknown): ExpressionBuilder {
  * TRIM function - removes whitespace
  * TRIM(string, side) - side: 'LEFT', 'RIGHT', 'BOTH'
  */
-export function TRIM(expr: SafeUnknown, side?: 'LEFT' | 'RIGHT' | 'BOTH'): ExpressionBuilder {
+export function TRIM(expr: AqlValue | ExpressionBuilder, side?: 'LEFT' | 'RIGHT' | 'BOTH'): ExpressionBuilder {
   const args = side ? [(toExpression(expr), { type: 'literal', value: side }) as AqlExpression]
     : [toExpression(expr)];
   return new ExpressionBuilder({
@@ -483,7 +515,7 @@ export function TRIM(expr: SafeUnknown, side?: 'LEFT' | 'RIGHT' | 'BOTH'): Expre
 /**
  * REVERSE function - reverses string or array
  */
-export function REVERSE(expr: SafeUnknown): ExpressionBuilder {
+export function REVERSE(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'REVERSE',
@@ -494,7 +526,7 @@ export function REVERSE(expr: SafeUnknown): ExpressionBuilder {
 /**
  * SPLIT function - splits string by delimiter
  */
-export function SPLIT(str: SafeUnknown, delimiter: SafeUnknown): ExpressionBuilder {
+export function SPLIT(str: AqlValue | ExpressionBuilder, delimiter: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'SPLIT',
@@ -505,7 +537,7 @@ export function SPLIT(str: SafeUnknown, delimiter: SafeUnknown): ExpressionBuild
 /**
  * LIKE function - pattern matching (regex-like)
  */
-export function LIKE(expr: SafeUnknown, pattern: SafeUnknown): ExpressionBuilder {
+export function LIKE(expr: AqlValue | ExpressionBuilder, pattern: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'LIKE',
@@ -516,7 +548,7 @@ export function LIKE(expr: SafeUnknown, pattern: SafeUnknown): ExpressionBuilder
 /**
  * FIRST function - returns first element
  */
-export function FIRST(expr: SafeUnknown): ExpressionBuilder {
+export function FIRST(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'FIRST',
@@ -527,7 +559,7 @@ export function FIRST(expr: SafeUnknown): ExpressionBuilder {
 /**
  * LAST function - returns last element
  */
-export function LAST(expr: SafeUnknown): ExpressionBuilder {
+export function LAST(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'LAST',
@@ -538,7 +570,7 @@ export function LAST(expr: SafeUnknown): ExpressionBuilder {
 /**
  * NTH function - returns nth element
  */
-export function NTH(expr: SafeUnknown, index: SafeUnknown): ExpressionBuilder {
+export function NTH(expr: AqlValue | ExpressionBuilder, index: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'NTH',
@@ -549,7 +581,7 @@ export function NTH(expr: SafeUnknown, index: SafeUnknown): ExpressionBuilder {
 /**
  * APPEND function - appends element to array
  */
-export function APPEND(array: SafeUnknown, element: SafeUnknown): ExpressionBuilder {
+export function APPEND(array: AqlValue | ExpressionBuilder, element: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'APPEND',
@@ -560,7 +592,7 @@ export function APPEND(array: SafeUnknown, element: SafeUnknown): ExpressionBuil
 /**
  * FLATTEN function - flattens nested arrays
  */
-export function FLATTEN(expr: SafeUnknown, depth?: number): ExpressionBuilder {
+export function FLATTEN(expr: AqlValue | ExpressionBuilder, depth?: number): ExpressionBuilder {
   const args = depth ? [(toExpression(expr), { type: 'literal', value: depth }) as AqlExpression]
     : [toExpression(expr)];
   return new ExpressionBuilder({
@@ -573,7 +605,7 @@ export function FLATTEN(expr: SafeUnknown, depth?: number): ExpressionBuilder {
 /**
  * UNIQUE function - removes duplicates
  */
-export function UNIQUE(expr: SafeUnknown): ExpressionBuilder {
+export function UNIQUE(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'UNIQUE',
@@ -584,7 +616,7 @@ export function UNIQUE(expr: SafeUnknown): ExpressionBuilder {
 /**
  * SORT function - sorts array
  */
-export function SORT(expr: SafeUnknown): ExpressionBuilder {
+export function SORT(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'SORT',
@@ -595,7 +627,7 @@ export function SORT(expr: SafeUnknown): ExpressionBuilder {
 /**
  * SQRT function - square root
  */
-export function SQRT(expr: SafeUnknown): ExpressionBuilder {
+export function SQRT(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'SQRT',
@@ -606,7 +638,7 @@ export function SQRT(expr: SafeUnknown): ExpressionBuilder {
 /**
  * POW function - power/exponent
  */
-export function POW(base: SafeUnknown, exponent: SafeUnknown): ExpressionBuilder {
+export function POW(base: AqlValue | ExpressionBuilder, exponent: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'POW',
@@ -617,7 +649,7 @@ export function POW(base: SafeUnknown, exponent: SafeUnknown): ExpressionBuilder
 /**
  * CEIL function - ceiling (round up)
  */
-export function CEIL(expr: SafeUnknown): ExpressionBuilder {
+export function CEIL(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'CEIL',
@@ -628,7 +660,7 @@ export function CEIL(expr: SafeUnknown): ExpressionBuilder {
 /**
  * ROUND function - round to nearest integer
  */
-export function ROUND(expr: SafeUnknown, decimals?: number): ExpressionBuilder {
+export function ROUND(expr: AqlValue | ExpressionBuilder, decimals?: number): ExpressionBuilder {
   const args = decimals ? [(toExpression(expr), { type: 'literal', value: decimals }) as AqlExpression]
     : [toExpression(expr)];
   return new ExpressionBuilder({
@@ -641,7 +673,7 @@ export function ROUND(expr: SafeUnknown, decimals?: number): ExpressionBuilder {
 /**
  * ABS function - absolute value
  */
-export function ABS(expr: SafeUnknown): ExpressionBuilder {
+export function ABS(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'ABS',
@@ -652,7 +684,7 @@ export function ABS(expr: SafeUnknown): ExpressionBuilder {
 /**
  * LOG function - natural logarithm
  */
-export function LOG(expr: SafeUnknown): ExpressionBuilder {
+export function LOG(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'LOG',
@@ -663,7 +695,7 @@ export function LOG(expr: SafeUnknown): ExpressionBuilder {
 /**
  * TYPE_OF function - returns type of value
  */
-export function TYPE_OF(expr: SafeUnknown): ExpressionBuilder {
+export function TYPE_OF(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'TYPE_OF',
@@ -674,7 +706,7 @@ export function TYPE_OF(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_NULL function - checks if null
  */
-export function IS_NULL(expr: SafeUnknown): ExpressionBuilder {
+export function IS_NULL(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_NULL',
@@ -685,7 +717,7 @@ export function IS_NULL(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_BOOL function - checks if boolean
  */
-export function IS_BOOL(expr: SafeUnknown): ExpressionBuilder {
+export function IS_BOOL(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_BOOL',
@@ -696,7 +728,7 @@ export function IS_BOOL(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_NUMBER function - checks if number
  */
-export function IS_NUMBER(expr: SafeUnknown): ExpressionBuilder {
+export function IS_NUMBER(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_NUMBER',
@@ -707,7 +739,7 @@ export function IS_NUMBER(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_STRING function - checks if string
  */
-export function IS_STRING(expr: SafeUnknown): ExpressionBuilder {
+export function IS_STRING(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_STRING',
@@ -718,7 +750,7 @@ export function IS_STRING(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_ARRAY function - checks if array
  */
-export function IS_ARRAY(expr: SafeUnknown): ExpressionBuilder {
+export function IS_ARRAY(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_ARRAY',
@@ -729,7 +761,7 @@ export function IS_ARRAY(expr: SafeUnknown): ExpressionBuilder {
 /**
  * IS_OBJECT function - checks if object
  */
-export function IS_OBJECT(expr: SafeUnknown): ExpressionBuilder {
+export function IS_OBJECT(expr: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'IS_OBJECT',
@@ -740,7 +772,7 @@ export function IS_OBJECT(expr: SafeUnknown): ExpressionBuilder {
 /**
  * HAS function - checks if object has property
  */
-export function HAS(obj: SafeUnknown, property: SafeUnknown): ExpressionBuilder {
+export function HAS(obj: AqlValue | ExpressionBuilder, property: AqlValue | ExpressionBuilder): ExpressionBuilder {
   return new ExpressionBuilder({
     type: 'function',
     name: 'HAS',
@@ -751,7 +783,7 @@ export function HAS(obj: SafeUnknown, property: SafeUnknown): ExpressionBuilder 
 /**
  * Convert a value to an AQL expression
  */
-function toExpression(value: SafeUnknown): AqlExpression {
+function toExpression(value: AqlValue | ExpressionBuilder): AqlExpression {
   if (value instanceof ExpressionBuilder) {
     return value.getExpression();
   }
@@ -798,7 +830,7 @@ export class DateFunctions {
       type: 'function',
       name: 'DATE_FORMAT',
       args: [dateExpr, { type: 'literal', value: format } as AqlLiteral]
-    } as AqlFunctionCall);
+    });
   }
 
   static parse(dateString: string, format: string): ExpressionBuilder {
@@ -1340,7 +1372,7 @@ export function REGEX_MATCH(text: ExpressionBuilder | string, pattern: string, c
 /**
  * WINDOW function helper
  */
-export function WINDOW(preceding: number, following: number, aggregation: ExpressionBuilder): { preceding: number, following: number, aggregation: SafeUnknown } {
+export function WINDOW(preceding: number, following: number, aggregation: ExpressionBuilder): { preceding: number, following: number, aggregation: AqlValue } {
   return {
     preceding,
     following,

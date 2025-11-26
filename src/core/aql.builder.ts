@@ -10,17 +10,18 @@ import {
   AqlExpression,
   AqlCollectAggregate,
   AqlCollectVariable,
-  SafeUnknown,
+  AqlValue,
   AqlCollect,
   AqlTraverse,
   AqlCollectWithKeep,
   AqlUpdateEnhanced,
   AqlUpsert,
-  OldReference
+  OldReference,
+  AqlJoin
 } from './core.types';
 import { AqlQueryJson } from '../serialization/json.types';
 import { serializeQuery, deserializeQuery } from '../serialization/serializer';
-import { ExpressionBuilder, ref } from './expression.builder';
+import { ExpressionBuilder, ref, variable } from './expression.builder';
 import { DatabaseSchema, EdgeSchema } from '../schema/types';
 
 /**
@@ -28,7 +29,7 @@ import { DatabaseSchema, EdgeSchema } from '../schema/types';
  */
 export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   public readonly query: AqlQuery<Schema>;
-
+  private currentJoin?: AqlJoin;
 
 
   constructor(initialValue?: string | ExpressionBuilder | number) {
@@ -44,10 +45,23 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   }
 
   /**
+   * Join with another collection
+   */
+  join<V = any, K extends keyof Schema = any>(collection: K, variableName: string): AQLBuilder<Schema, V> {
+    return this.for<V>(variableName).in(collection as any);
+  }
+
+  /**
    * Set the FOR loop variable
    */
   for<V = any>(variableName: string): AQLBuilder<Schema, V> {
-    this.query.variable = variableName;
+    if (this.query.variable) {
+      this.currentJoin = { variable: variableName, source: '' };
+      this.query.joins ??= [];
+      this.query.joins.push(this.currentJoin);
+    } else {
+      this.query.variable = variableName;
+    }
     return this as any;
   }
 
@@ -55,16 +69,23 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
    * Set the collection or source for FOR loop
    */
   in<K extends keyof Schema>(source: K | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema, K extends keyof Schema ? Schema[K] : any> {
-    if (typeof source === 'string') {
-      if (source.startsWith('@@') || source.startsWith('@')) {
-        this.query.source = source;
-      } else {
-        // Cast to string to satisfy the type checker, but K ensures it's a valid key if passed as such
-        this.query.collection = source as string;
-        this.query.source = source;
-      }
+    const sourceValue = (typeof source === 'string' && !source.startsWith('@'))
+      ? source as string
+      : source as AqlValue as string | AqlRange | AqlGraph;
+
+    if (this.currentJoin) {
+      this.currentJoin.source = sourceValue;
     } else {
-      this.query.source = source as SafeUnknown as string | AqlRange | AqlGraph;
+      if (typeof source === 'string') {
+        if (source.startsWith('@@') || source.startsWith('@')) {
+          this.query.source = source;
+        } else {
+          this.query.collection = source as string;
+          this.query.source = source;
+        }
+      } else {
+        this.query.source = sourceValue;
+      }
     }
     return this as any;
   }
@@ -73,8 +94,12 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
    * Set the edge collection for FOR loop (Strictly Typed)
    */
   inEdge<K extends keyof Schema>(collection: Schema[K] extends EdgeSchema ? K : never): AQLBuilder<Schema, K extends keyof Schema ? Schema[K] : any> {
-    this.query.collection = collection as string;
-    this.query.source = collection as string;
+    if (this.currentJoin) {
+      this.currentJoin.source = collection as string;
+    } else {
+      this.query.collection = collection as string;
+      this.query.source = collection as string;
+    }
     return this as any;
   }
 
@@ -92,7 +117,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
       ? this.expressionToString(options.startVertex.getExpression())
       : options.startVertex;
 
-    this.query.source = {
+    const graphSource = {
       type: 'graph',
       graph: options.graph,
       direction: options.direction,
@@ -100,6 +125,12 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
       minDepth: options.minDepth || 1,
       maxDepth: options.maxDepth
     } as AqlGraph;
+
+    if (this.currentJoin) {
+      this.currentJoin.source = graphSource;
+    } else {
+      this.query.source = graphSource;
+    }
     return this;
   }
 
@@ -120,7 +151,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
    * Add an INSERT operation
    */
-  insert(document: SafeUnknown): this {
+  insert(document: AqlValue): this {
     this.query.operations ??= [];
     this.query.operations.push({
       type: 'INSERT',
@@ -168,7 +199,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
    * Add a COLLECT clause
    */
-  collect(variables: Record<string, SafeUnknown>): CollectBuilder {
+  collect(variables: Record<string, AqlValue>): CollectBuilder {
     return new CollectBuilder(this, variables);
   }
 
@@ -190,7 +221,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
    * Set the RETURN clause
    */
-  return(value: SafeUnknown): this {
+  return(value: AqlValue): this {
     this.query.returnValue = value;
     return this;
   }
@@ -228,7 +259,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
   * UPSERT operation: Insert or Update based on search condition
   */
-  upsert(searchDoc: SafeUnknown): UpsertBuilder {
+  upsert(searchDoc: AqlValue): UpsertBuilder {
     return new UpsertBuilder(this, searchDoc);
   }
 
@@ -243,7 +274,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
   * UPDATE with detailed field updates
   */
-  updateWith(document: SafeUnknown, updates: Record<string, SafeUnknown>): this {
+  updateWith(document: AqlValue, updates: Record<string, AqlValue>): this {
     if (!this.query.updatesEnhanced) {
       this.query.updatesEnhanced = [];
     }
@@ -263,7 +294,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
   * UPDATE with OLD reference support
   */
-  updateWithOld(document: SafeUnknown, updatesFn: (old: OldBuilder) => Record<string, SafeUnknown>): this {
+  updateWithOld(document: AqlValue, updatesFn: (old: OldBuilder) => Record<string, AqlValue>): this {
     const oldBuilder = createOldBuilder();
     const updates = updatesFn(oldBuilder);
 
@@ -367,7 +398,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
   * COLLECT with KEEP modifier to selectively keep fields
   */
-  collectKeep(variables: Record<string, SafeUnknown>, keep: string[]): CollectKeepBuilder {
+  collectKeep(variables: Record<string, AqlValue>, keep: string[]): CollectKeepBuilder {
     return new CollectKeepBuilder(this, variables, keep);
   }
 
@@ -377,14 +408,14 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
     }
 
     // Convert to regular collect with keep info
-    this.query.collects.push(collect as SafeUnknown as AqlCollect);
+    this.query.collects.push(collect as AqlValue as AqlCollect);
     return this;
   }
 
   /**
      * Convert expression to AQL string representation
      */
-  expressionToString(expr: SafeUnknown): string {
+  expressionToString(expr: AqlValue): string {
     // Extract expression from ExpressionBuilder wrapper
     if (expr instanceof ExpressionBuilder) {
       expr = expr.getExpression();
@@ -393,13 +424,13 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
     // Handle AqlExpression objects with proper conversion
     if (expr && typeof expr === 'object' && 'type' in expr) {
       // Use the proper AQL conversion function instead of wrong method
-      const { aql } = expressionToAql(expr, {}, 0);
+      const { aql } = expressionToAql(expr as AqlExpression, {}, 0);
       return aql;
     }
 
     // Handle built query results (already compiled)
     if (expr && typeof expr === 'object' && 'query' in expr) {
-      return `(${expr.query})`;
+      return `(${(expr as GeneratedAqlQuery).query})`;
     }
 
     // Handle AQLBuilder instances (subqueries)
@@ -452,7 +483,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
     if (expression instanceof AQLBuilder) {
       expression = expression.build();
     }
-    const letClause = { variable: variableName, expression };
+    const letClause = { variable: variableName, expression: expression as AqlValue };
 
     if (this.query.collects && this.query.collects.length > 0) {
       // If we have COLLECTs, this LET goes after them
@@ -553,11 +584,11 @@ export function createSubquery(): AQLBuilder {
  */
 class CollectBuilder {
 
-  private readonly aggregations: Map<string, { function: string; expression: SafeUnknown }> = new Map();
+  private readonly aggregations: Map<string, { function: string; expression: AqlValue }> = new Map();
 
   constructor(
     private readonly builder: AQLBuilder,
-    private readonly variables: Record<string, SafeUnknown>
+    private readonly variables: Record<string, AqlValue>
   ) { }
 
   sort(...args: string[]): AQLBuilder {
@@ -569,7 +600,7 @@ class CollectBuilder {
   /**
      * Add COUNT aggregation
      */
-  count(name: string, expression: SafeUnknown = 1): this {
+  count(name: string, expression: AqlValue = 1): this {
     this.aggregations.set(name, { function: 'COUNT', expression });
     return this;
   }
@@ -577,7 +608,7 @@ class CollectBuilder {
   /**
    * Add SUM aggregation
    */
-  sum(name: string, expression: SafeUnknown): this {
+  sum(name: string, expression: AqlValue): this {
     this.aggregations.set(name, { function: 'SUM', expression });
     return this;
   }
@@ -585,7 +616,7 @@ class CollectBuilder {
   /**
    * Add AVERAGE aggregation
    */
-  average(name: string, expression: SafeUnknown): this {
+  average(name: string, expression: AqlValue): this {
     this.aggregations.set(name, { function: 'AVERAGE', expression });
     return this;
   }
@@ -593,7 +624,7 @@ class CollectBuilder {
   /**
    * Add MIN aggregation
    */
-  min(name: string, expression: SafeUnknown): this {
+  min(name: string, expression: AqlValue): this {
     this.aggregations.set(name, { function: 'MIN', expression });
     return this;
   }
@@ -601,7 +632,7 @@ class CollectBuilder {
   /**
    * Add MAX aggregation
    */
-  max(name: string, expression: SafeUnknown): this {
+  max(name: string, expression: AqlValue): this {
     this.aggregations.set(name, { function: 'MAX', expression });
     return this;
   }
@@ -678,7 +709,7 @@ class CollectBuilder {
  */
 export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
   const parts: string[] = [];
-  const bindVars: Record<string, SafeUnknown> = {};
+  const bindVars: Record<string, AqlValue> = {};
   let paramCounter = 0;
 
   if (query.multipleLoopVars) {
@@ -717,9 +748,25 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     parts.push(`FOR ${query.variable} IN ${sourceStr}`);
   }
 
+  if (query.joins && query.joins.length > 0) {
+    for (const join of query.joins) {
+      let sourceStr: string;
+      if (typeof join.source === 'string') {
+        sourceStr = join.source;
+      } else if ('type' in join.source && join.source.type === 'range') {
+        sourceStr = `${join.source.start}..${join.source.end}`;
+      } else if ('type' in join.source && join.source.type === 'graph') {
+        sourceStr = buildGraphTraversal(join.source);
+      } else {
+        sourceStr = String(join.source);
+      }
+      parts.push(`FOR ${join.variable} IN ${sourceStr}`);
+    }
+  }
+
   if (query.letsPreCollect && query.letsPreCollect.length > 0) {
     for (const let_ of query.letsPreCollect) {
-      const exprStr = expressionToAql(let_.expression, bindVars, paramCounter);
+      const exprStr = expressionToAql(let_.expression as AqlExpression, bindVars, paramCounter);
       paramCounter = exprStr.paramCounter;
       parts.push(`LET ${let_.variable} = ${exprStr.aql}`);
     }
@@ -777,7 +824,7 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
 
   if (query.lets && query.lets.length > 0) {
     for (const let_ of query.lets) {
-      const exprStr = expressionToAql(let_.expression, bindVars, paramCounter);
+      const exprStr = expressionToAql(let_.expression as AqlExpression, bindVars, paramCounter);
       paramCounter = exprStr.paramCounter;
       parts.push(`LET ${let_.variable} = ${exprStr.aql}`);
     }
@@ -883,7 +930,7 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
 
   // RETURN clause
   if (query.returnValue !== undefined) {
-    const returnStr = expressionToAql(query.returnValue, bindVars, paramCounter);
+    const returnStr = expressionToAql(query.returnValue as AqlExpression, bindVars, paramCounter);
     parts.push(`RETURN ${returnStr.aql}`);
   }
 
@@ -907,8 +954,8 @@ function buildGraphTraversal(graph: AqlGraph): string {
 }
 
 function expressionToAql(
-  expr: SafeUnknown,
-  bindVars: Record<string, SafeUnknown>,
+  expr: AqlValue,
+  bindVars: Record<string, AqlValue>,
   paramCounter: number
 ): { aql: string; paramCounter: number } {
   if (expr instanceof ExpressionBuilder) {
@@ -1007,7 +1054,7 @@ function expressionToAql(
       }
 
       case 'function': {
-        const args = typedExpr.args.map((arg: SafeUnknown) => {
+        const args = typedExpr.args.map((arg: AqlExpression) => {
           const result = expressionToAql(arg, bindVars, paramCounter);
           paramCounter = result.paramCounter;
           return result.aql;
@@ -1081,8 +1128,8 @@ function expressionToAql(
  * Convert a document object to AQL
  */
 function documentToAql(
-  doc: SafeUnknown,
-  bindVars: Record<string, SafeUnknown>,
+  doc: AqlValue,
+  bindVars: Record<string, AqlValue>,
   paramCounter: number
 ): { aql: string; paramCounter: number } {
   if (typeof doc !== 'object' || doc === null) {
@@ -1113,9 +1160,9 @@ function documentToAql(
  * Builder for UPSERT operation
  */
 class UpsertBuilder {
-  constructor(private readonly builder: AQLBuilder, private readonly searchDoc: any) { }
+  constructor(private readonly builder: AQLBuilder, private readonly searchDoc: AqlValue) { }
 
-  insert(insertDoc: any): UpsertUpdateBuilder {
+  insert(insertDoc: AqlValue): UpsertUpdateBuilder {
     return new UpsertUpdateBuilder(this.builder, this.searchDoc, insertDoc);
   }
 }
@@ -1126,11 +1173,11 @@ class UpsertBuilder {
 class UpsertUpdateBuilder {
   constructor(
     private readonly builder: AQLBuilder,
-    private readonly searchDoc: any,
-    private readonly insertDoc: any
+    private readonly searchDoc: AqlValue,
+    private readonly insertDoc: AqlValue
   ) { }
 
-  update(updateDoc: any): UpsertIntoBuilder {
+  update(updateDoc: AqlValue): UpsertIntoBuilder {
     return new UpsertIntoBuilder(this.builder, this.searchDoc, this.insertDoc, updateDoc);
   }
 }
@@ -1141,9 +1188,9 @@ class UpsertUpdateBuilder {
 class UpsertIntoBuilder {
   constructor(
     private readonly builder: AQLBuilder,
-    private readonly searchDoc: any,
-    private readonly insertDoc: any,
-    private readonly updateDoc: any
+    private readonly searchDoc: AqlValue,
+    private readonly insertDoc: AqlValue,
+    private readonly updateDoc: AqlValue
   ) { }
 
   into(collection: string): AQLBuilder {
@@ -1191,7 +1238,7 @@ function createOldBuilder(): OldBuilder {
 class CollectKeepBuilder {
   constructor(
     private readonly builder: AQLBuilder,
-    private readonly variables: Record<string, any>,
+    private readonly variables: Record<string, AqlValue>,
     private readonly fields: string[]
   ) { }
 
@@ -1212,7 +1259,7 @@ class CollectKeepBuilder {
     const aggs = Object.entries(aggregations).reduce((acc, [name, expr]) => {
       acc[name] = expr.getExpression();
       return acc;
-    }, {} as Record<string, any>);
+    }, {} as Record<string, AqlValue>);
 
     return this.builder._addCollectKeep({
       variables: this.variables,
@@ -1228,7 +1275,8 @@ export const AB = {
     return new AQLBuilder().for(variable);
   },
   ref,
-  value: (val: SafeUnknown): SafeUnknown => val,
+  var: variable,
+  value: (val: AqlValue): AqlValue => val,
   range: (start: number, end: number) => ({ type: 'range' as const, start, end }),
   str: (value: string) => value,
 };
