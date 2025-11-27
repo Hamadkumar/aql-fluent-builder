@@ -1,6 +1,6 @@
 import { DatabaseSchema, DocumentType, AqlValue } from '../schema/types';
 import { AQLBuilder } from '../core/aql.builder';
-import { ExpressionBuilder, variable as newVar, ref as AB } from '../core/expression.builder';
+import { ExpressionBuilder, variable as newVar } from '../core/expression.builder';
 
 export interface RepositoryOptions<T> {
     as?: string;
@@ -24,14 +24,14 @@ export class BaseRepository<
     /**
      * Create a new query builder for this collection
      */
-    protected createBuilder(variable = 'doc'): AQLBuilder<Schema, Doc> {
-        return new AQLBuilder<Schema, Doc>().for(variable).in(this.collection);
+    protected createBuilder(variable = 'doc'): AQLBuilder<Schema> {
+        return new AQLBuilder<Schema>().for(variable).in(this.collection);
     }
 
     /**
      * Find all documents matching criteria
      */
-    findAll(options: RepositoryOptions<Doc> = {}): AQLBuilder<Schema, Doc> {
+    findAll(options: RepositoryOptions<Doc> = {}): AQLBuilder<Schema> {
         const variable = options.as || 'doc';
         const builder = this.createBuilder(variable);
 
@@ -55,10 +55,10 @@ export class BaseRepository<
         }
 
         if (options.returnFields) {
-            const returnObj = options.returnFields.reduce((acc, field) => {
-                acc[field] = AB<any>(`${variable}.${field}`);
-                return acc;
-            }, {} as Record<string, any>);
+            const returnObj: Record<string, unknown> = {};
+            for (const field of options.returnFields) {
+                returnObj[field as string] = new ExpressionBuilder({ type: 'reference', name: `${variable}.${field}` });
+            }
             builder.return(returnObj);
         } else {
             builder.return(variable);
@@ -70,7 +70,7 @@ export class BaseRepository<
     /**
      * Find a single document
      */
-    findOne(options: RepositoryOptions<Doc> = {}): AQLBuilder<Schema, Doc> {
+    findOne(options: RepositoryOptions<Doc> = {}): AQLBuilder<Schema> {
         const builder = this.findAll({ ...options, limit: 1 });
         return builder;
     }
@@ -78,16 +78,16 @@ export class BaseRepository<
     /**
      * Find by ID (document key or _id)
      */
-    findById(id: string): AQLBuilder<Schema, Doc> {
-        return new AQLBuilder<Schema, Doc>()
-            .return(AB<any>(`DOCUMENT('${this.collection}', '${id}')`));
+    findById(id: string): AQLBuilder<Schema> {
+        return new AQLBuilder<Schema>()
+            .return(new ExpressionBuilder({ type: 'reference', name: `DOCUMENT('${this.collection}', '${id}')` }));
     }
 
     /**
      * Create a new document
      */
-    create(data: Partial<Doc>): AQLBuilder<Schema, Doc> {
-        return new AQLBuilder<Schema, Doc>()
+    create(data: Partial<Doc>): AQLBuilder<Schema> {
+        return new AQLBuilder<Schema>()
             .insert(data as AqlValue)
             .into(this.collection)
             .return('NEW');
@@ -96,8 +96,8 @@ export class BaseRepository<
     /**
      * Update a document by key
      */
-    update(key: string, data: Partial<Doc>): AQLBuilder<Schema, Doc> {
-        return new AQLBuilder<Schema, Doc>()
+    update(key: string, data: Partial<Doc>): AQLBuilder<Schema> {
+        return new AQLBuilder<Schema>()
             .in(this.collection)
             .updateWith(`"${key}"`, data as Record<string, AqlValue>)
             .return('NEW');
@@ -106,10 +106,17 @@ export class BaseRepository<
     /**
      * Delete a document by key
      */
-    delete(key: string): AQLBuilder<Schema, Doc> {
-        return new AQLBuilder<Schema, Doc>()
+    delete(key: string): AQLBuilder<Schema> {
+        return new AQLBuilder<Schema>()
             .remove(`"${key}"`)
             .into(this.collection)
             .return('OLD');
+    }
+
+    /**
+     * Execute a raw AQL query
+     */
+    query(aql: string, bindVars?: Record<string, unknown>): AQLBuilder<Schema> {
+        return AQLBuilder.raw<Schema>(aql, bindVars);
     }
 }

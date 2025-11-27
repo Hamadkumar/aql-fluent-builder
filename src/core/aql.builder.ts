@@ -17,7 +17,8 @@ import {
   AqlUpdateEnhanced,
   AqlUpsert,
   OldReference,
-  AqlJoin
+  AqlJoin,
+  AqlTraversalOptions
 } from './core.types';
 import { AqlQueryJson } from '../serialization/json.types';
 import { serializeQuery, deserializeQuery } from '../serialization/serializer';
@@ -27,10 +28,19 @@ import { DatabaseSchema, EdgeSchema } from '../schema/types';
 /**
  * Main query builder class with fluent API
  */
-export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
-  public readonly query: AqlQuery<Schema>;
+export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
+  public readonly query: AqlQuery;
   private currentJoin?: AqlJoin;
 
+
+  static raw<S extends DatabaseSchema = any>(query: string, bindVars?: Record<string, unknown>): AQLBuilder<S> {
+    const builder = new AQLBuilder<S>();
+    (builder as any).query = {
+      raw: query,
+      rawBindVars: bindVars
+    };
+    return builder;
+  }
 
   constructor(initialValue?: string | ExpressionBuilder | number) {
     this.query = {};
@@ -47,14 +57,14 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
    * Join with another collection
    */
-  join<V = any, K extends keyof Schema = any>(collection: K, variableName: string): AQLBuilder<Schema, V> {
-    return this.for<V>(variableName).in(collection as any);
+  join<K extends keyof Schema = any>(collection: K, variableName: string): AQLBuilder<Schema> {
+    return this.for(variableName).in(collection as any);
   }
 
   /**
    * Set the FOR loop variable
    */
-  for<V = any>(variableName: string): AQLBuilder<Schema, V> {
+  for(variableName: string): AQLBuilder<Schema> {
     if (this.query.variable) {
       this.currentJoin = { variable: variableName, source: '' };
       this.query.joins ??= [];
@@ -62,13 +72,13 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
     } else {
       this.query.variable = variableName;
     }
-    return this as any;
+    return this as unknown as AQLBuilder<Schema>;
   }
 
   /**
    * Set the collection or source for FOR loop
    */
-  in<K extends keyof Schema>(source: K | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema, K extends keyof Schema ? Schema[K] : any> {
+  in<K extends keyof Schema | string = string>(source: K | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema> {
     const sourceValue = (typeof source === 'string' && !source.startsWith('@'))
       ? source as string
       : source as AqlValue as string | AqlRange | AqlGraph;
@@ -87,20 +97,20 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
         this.query.source = sourceValue;
       }
     }
-    return this as any;
+    return this as unknown as AQLBuilder<Schema>;
   }
 
   /**
    * Set the edge collection for FOR loop (Strictly Typed)
    */
-  inEdge<K extends keyof Schema>(collection: Schema[K] extends EdgeSchema ? K : never): AQLBuilder<Schema, K extends keyof Schema ? Schema[K] : any> {
+  inEdge<K extends keyof Schema>(collection: Schema[K] extends EdgeSchema ? K : never): AQLBuilder<Schema> {
     if (this.currentJoin) {
       this.currentJoin.source = collection as string;
     } else {
       this.query.collection = collection as string;
       this.query.source = collection as string;
     }
-    return this as any;
+    return this as unknown as AQLBuilder<Schema>;
   }
 
   /**
@@ -112,6 +122,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
     startVertex: string | ExpressionBuilder;
     minDepth?: number;
     maxDepth?: number;
+    options?: AqlTraversalOptions;
   }): this {
     const startVertex = options.startVertex instanceof ExpressionBuilder
       ? this.expressionToString(options.startVertex.getExpression())
@@ -123,7 +134,8 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
       direction: options.direction,
       startVertex,
       minDepth: options.minDepth || 1,
-      maxDepth: options.maxDepth
+      maxDepth: options.maxDepth,
+      options: options.options
     } as AqlGraph;
 
     if (this.currentJoin) {
@@ -364,14 +376,32 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
   /**
   * PRUNE clause to stop traversal at condition
   */
-  prune(condition: ExpressionBuilder): this {
+  prune(condition: ExpressionBuilder | ((v: ExpressionBuilder, e: ExpressionBuilder, p: ExpressionBuilder) => ExpressionBuilder)): this {
     if (!this.query.prunes) {
       this.query.prunes = [];
     }
 
+    let expr: AqlValue;
+
+    if (typeof condition === 'function') {
+      // Create builders for v, e, p
+      // Use the configured variable names if available, otherwise default to v, e, p
+      const vName = this.query.multipleLoopVars?.vertex || 'v';
+      const eName = this.query.multipleLoopVars?.edge || 'e';
+      const pName = this.query.multipleLoopVars?.path || 'p';
+
+      const v = new ExpressionBuilder({ type: 'reference', name: vName });
+      const e = new ExpressionBuilder({ type: 'reference', name: eName });
+      const p = new ExpressionBuilder({ type: 'reference', name: pName });
+
+      expr = condition(v, e, p).getExpression();
+    } else {
+      expr = condition.getExpression();
+    }
+
     this.query.prunes.push({
       type: 'prune',
-      condition: condition.getExpression()
+      condition: expr as AqlExpression
     });
 
     return this;
@@ -467,8 +497,21 @@ export class AQLBuilder<Schema extends DatabaseSchema = any, Var = any> {
    * Generate the AQL query string and bind variables
    */
   toAql(): string {
-    const result = buildQuery(this.query);
-    return result.query;
+    return this.build().query;
+  }
+
+  /**
+   * Returns the query with bind variables inlined for debugging purposes.
+   * WARNING: Do not use this for execution as it may be vulnerable to injection.
+   */
+  toDebugString(): string {
+    const { query, bindVars } = this.build();
+    let debugQuery = query;
+    for (const [key, value] of Object.entries(bindVars)) {
+      const stringValue = typeof value === 'string' ? `"${value}"` : String(value);
+      debugQuery = debugQuery.replace(new RegExp(`@${key}\\b`, 'g'), stringValue);
+    }
+    return debugQuery;
   }
 
   /**
@@ -708,6 +751,13 @@ class CollectBuilder {
  * Build a complete AQL query from the query configuration
  */
 export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
+  if (query.raw) {
+    return {
+      query: query.raw,
+      bindVars: query.rawBindVars || {}
+    };
+  }
+
   const parts: string[] = [];
   const bindVars: Record<string, AqlValue> = {};
   let paramCounter = 0;
@@ -736,11 +786,7 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     } else if ('type' in query.source && query.source.type === 'range') {
       sourceStr = `${query.source.start}..${query.source.end}`;
     } else if ('type' in query.source && query.source.type === 'graph') {
-      const g = query.source;
-      const depth = g.maxDepth !== undefined
-        ? `${g.minDepth}..${g.maxDepth}`
-        : String(g.minDepth);
-      sourceStr = `${depth} ${g.direction} ${g.startVertex} GRAPH "${g.graph}"`;
+      sourceStr = buildGraphTraversal(query.source);
     } else {
       sourceStr = String(query.source);
     }
@@ -950,6 +996,11 @@ function buildGraphTraversal(graph: AqlGraph): string {
       : `"${graph.startVertex}"`;
 
   traversal += ` ${graph.direction} ${vertex} GRAPH "${graph.graph}"`;
+
+  if (graph.options) {
+    const optionsStr = documentToAql(graph.options, {}, 0).aql;
+    traversal += ` OPTIONS ${optionsStr}`;
+  }
   return traversal;
 }
 
@@ -987,24 +1038,13 @@ function expressionToAql(
     const typedExpr = expr as AqlExpression;
     switch (typedExpr.type) {
       case 'literal':
-        if (typeof typedExpr.value === 'string') {
-          return { aql: `"${typedExpr.value}"`, paramCounter };
-        }
-        if (typeof typedExpr.value === 'boolean') {
-          return { aql: typedExpr.value ? 'true' : 'false', paramCounter };
-        }
-        if (typeof typedExpr.value === 'number') {
-          return { aql: String(typedExpr.value), paramCounter };
-        }
         if (typedExpr.value === null) {
           return { aql: 'null', paramCounter };
         }
-        if (Array.isArray(typedExpr.value)) {
-          const paramName = `array${paramCounter++}`;
-          bindVars[paramName] = typedExpr.value;
-          return { aql: `@${paramName}`, paramCounter };
-        }
-        return { aql: JSON.stringify(typedExpr.value), paramCounter };
+        // Use bind variables for all other literals (string, number, boolean, array, object)
+        const paramName = `value${paramCounter++}`;
+        bindVars[paramName] = typedExpr.value;
+        return { aql: `@${paramName}`, paramCounter };
 
       case 'reference':
         return { aql: typedExpr.name, paramCounter };

@@ -11,6 +11,8 @@
     "noPropertyAccessFromIndexSignature": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "outDir": "./dist",
     "declaration": true,
     "types": [

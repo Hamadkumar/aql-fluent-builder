@@ -1,12 +1,14 @@
 import { DatabaseSchema, EdgeSchema, DocumentType } from '../schema/types';
-import { BaseRepository, RepositoryOptions } from './base.repository';
+import { BaseRepository } from './base.repository';
 import { AQLBuilder } from '../core/aql.builder';
 import { ExpressionBuilder } from '../core/expression.builder';
+import { AqlTraversalOptions } from '../core/core.types';
 
 export interface TraversalOptions {
     minDepth?: number;
     maxDepth?: number;
     graph?: string;
+    options?: AqlTraversalOptions;
 }
 
 /**
@@ -66,13 +68,13 @@ export class EdgeRepository<
         startVertex: string | ExpressionBuilder,
         direction: 'OUTBOUND' | 'INBOUND' | 'ANY',
         options: TraversalOptions = {}
-    ): AQLBuilder<Schema, any> {
-        const builder = new AQLBuilder<Schema, any>();
+    ): AQLBuilder<Schema> {
+        const builder = new AQLBuilder<Schema>();
 
         // Set up multiple loop variables for vertex, edge, path
         builder.forMultiple('v', 'e', 'p');
 
-        const { minDepth = 1, maxDepth = 1, graph } = options;
+        const { minDepth = 1, maxDepth = 1, graph, options: traversalOptions } = options;
 
         if (graph) {
             // Use named graph
@@ -81,7 +83,8 @@ export class EdgeRepository<
                 direction,
                 startVertex,
                 minDepth,
-                maxDepth
+                maxDepth,
+                options: traversalOptions
             });
         } else {
             // Use anonymous graph with this edge collection
@@ -91,7 +94,8 @@ export class EdgeRepository<
                 direction,
                 startVertex,
                 minDepth,
-                maxDepth
+                maxDepth,
+                options: traversalOptions
             });
         }
 
@@ -116,7 +120,7 @@ export class EdgeRepository<
     outbound(
         startVertex: string | ExpressionBuilder,
         options: TraversalOptions = {}
-    ): AQLBuilder<Schema, any> {
+    ): AQLBuilder<Schema> {
         return this.traversal(startVertex, 'OUTBOUND', options);
     }
 
@@ -138,7 +142,7 @@ export class EdgeRepository<
     inbound(
         startVertex: string | ExpressionBuilder,
         options: TraversalOptions = {}
-    ): AQLBuilder<Schema, any> {
+    ): AQLBuilder<Schema> {
         return this.traversal(startVertex, 'INBOUND', options);
     }
 
@@ -160,7 +164,7 @@ export class EdgeRepository<
     any(
         startVertex: string | ExpressionBuilder,
         options: TraversalOptions = {}
-    ): AQLBuilder<Schema, any> {
+    ): AQLBuilder<Schema> {
         return this.traversal(startVertex, 'ANY', options);
     }
 }

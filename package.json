@@ -44,7 +44,15 @@
     "edge-collection",
     "openapi",
     "aql-builder",
-    "aql-query"
+    "aql-query",
+    "orm",
+    "odm",
+    "typescript-orm",
+    "arango-orm",
+    "arango-odm",
+    "builder-pattern",
+    "query-generator",
+    "database-client"
   ],
   "author": {
     "name": "Hamad Kumar",
@@ -62,5 +70,8 @@
   },
   "dependencies": {
     "tslib": "^2.8.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

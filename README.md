@@ -9,6 +9,17 @@ A powerful, **type-safe**, and **fluent query builder** for **ArangoDB AQL queri
 
 This library allows you to construct complex AQL queries programmatically with full TypeScript support, ensuring type safety for collections, fields, and operations. It also supports JSON serialization of queries and automatic OpenAPI 3.0 specification generation.
 
+## Why use this?
+
+Writing raw AQL strings is error-prone and lacks type safety. `aql-fluent-builder` solves this by providing:
+
+- **Type Safety**: Catch errors at compile time, not runtime.
+- **Developer Experience**: Full IntelliSense support for collections and fields.
+- **Maintainability**: Refactor queries easily with TypeScript.
+- **Security**: Automatic bind variable generation prevents injection attacks.
+- **Productivity**: Fluent API makes writing complex queries intuitive.
+
+
 ## Features
 
 - 🚀 **Fluent API**: Intuitive, chainable methods for building queries (`FOR`, `FILTER`, `RETURN`, etc.).

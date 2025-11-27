@@ -8,7 +8,7 @@ import { DatabaseSchema } from '../schema/types';
 /**
  * Represents a complete AQL query configuration
  */
-export interface AqlQuery<Schema extends DatabaseSchema = any> {
+export interface AqlQuery {
   /** The collection to query */
   collection?: string;
   /** Variable name for FOR loop */
@@ -44,6 +44,10 @@ export interface AqlQuery<Schema extends DatabaseSchema = any> {
   prunes?: AqlPrune[];
   windows?: AqlWindow[];
   joins?: AqlJoin[];
+  /** Raw AQL query string */
+  raw?: string;
+  /** Bind variables for raw query */
+  rawBindVars?: Record<string, unknown>;
 }
 
 export interface AqlJoin {
@@ -70,6 +74,19 @@ export interface AqlGraph {
   startVertex: string;
   minDepth?: number;
   maxDepth?: number;
+  options?: AqlTraversalOptions;
+}
+
+/**
+ * Options for graph traversal
+ */
+export interface AqlTraversalOptions {
+  uniqueVertices?: 'none' | 'path' | 'global';
+  uniqueEdges?: 'none' | 'path';
+  bfs?: boolean;
+  order?: 'bfs' | 'dfs';
+  parallelism?: number;
+  maxIterations?: number;
 }
 
 /**
