@@ -3,7 +3,7 @@
  * A fluent API for building ArangoDB AQL queries
  */
 
-import { DatabaseSchema } from '../schema/types';
+
 
 /**
  * Represents a complete AQL query configuration
@@ -11,12 +11,15 @@ import { DatabaseSchema } from '../schema/types';
 export interface AqlQuery {
   /** The collection to query */
   collection?: string;
+  /** Collections for WITH clause */
+  withCollections?: string[];
   /** Variable name for FOR loop */
   variable?: string;
   /** FOR loop source (collection, range, or graph) */
   source?: string | AqlRange | AqlGraph;
   /** Filter conditions */
   filters?: AqlExpression[];
+  filtersPostCollect?: AqlExpression[];
   /** Document operations (INSERT, REPLACE, REMOVE, UPDATE) */
   operations?: AqlOperation[];
   /** COLLECT clauses */
@@ -106,16 +109,17 @@ export interface AqlCollect {
   variables: AqlCollectVariable[];
   into?: string;
   aggregate?: AqlCollectAggregate[];
+  keep?: string[];
 }
 
 export interface AqlCollectVariable {
-  key: string;     // Variable name
-  value: string;   // Stringified expression
+  key: string;
+  value: string;
 }
 
 export interface AqlCollectAggregate {
-  name: string;        // Aggregate name
-  expression: string;  // Stringified: "SUM(amount)"
+  name: string;
+  expression: string;
 }
 
 /**
@@ -224,7 +228,7 @@ export interface GeneratedAqlQuery {
  */
 export interface AqlLet {
   variable: string;
-  expression: AqlValue;  // Can be a subquery or expression
+  expression: AqlValue;
 }
 
 /**
@@ -273,10 +277,10 @@ export interface AqlUpsert {
 export interface AqlUpdateEnhanced {
   type: 'UPDATE';
   document: AqlValue;
-  updateFields: Record<string, AqlValue>; // Specific fields to update
+  updateFields: Record<string, AqlValue>;
   collection: string;
   variable?: string;
-  oldReference?: boolean; // Use OLD reference
+  oldReference?: boolean;
 }
 
 /**
@@ -284,16 +288,16 @@ export interface AqlUpdateEnhanced {
  */
 export interface OldReference {
   type: 'old';
-  path: string; // e.g., "OLD.visits"
+  path: string;
 }
 
 /**
  * Multiple loop variables for graph traversal
  */
 export interface AqlMultipleLoopVars {
-  vertex: string; // v in: FOR v, e, p IN ...
-  edge: string; // e
-  path: string; // p
+  vertex: string;
+  edge?: string;
+  path?: string;
 }
 
 /**
@@ -321,7 +325,7 @@ export interface AqlFunctionCallEnhanced {
   type: 'function';
   name: string;
   args: AqlExpression[];
-  options?: Record<string, AqlValue>; // For functions like REGEX
+  options?: Record<string, AqlValue>;
 }
 
 /**
@@ -467,7 +471,7 @@ export interface AqlCollectWithKeep {
   variables: Record<string, AqlValue>;
   into?: string;
   aggregate?: Record<string, AqlValue>;
-  keep?: string[]; // Fields to keep from grouped documents
+  keep?: string[];
 }
 
 /**
@@ -512,28 +516,4 @@ export interface AqlUnset {
   fields: string[];
 }
 
-/**
- * Represents a JSON-serializable AQL query request
- */
-export interface AqlQueryRequest<Schema extends DatabaseSchema = any> {
-  collection?: keyof Schema | string;
-  variable?: string;
-  source?: string | AqlRange | AqlGraph;
-  filters?: AqlExpression[];
-  operations?: AqlOperation[];
-  collects?: AqlCollect[];
-  sorts?: AqlSort[];
-  returnValue?: AqlValue;
-  limit?: number;
-  offset?: number;
-  lets?: AqlLet[];
-  letsPreCollect?: AqlLet[];
-  aggregations?: AqlAggregation[];
-  upserts?: AqlUpsert[];
-  updatesEnhanced?: AqlUpdateEnhanced[];
-  multipleLoopVars?: AqlMultipleLoopVars;
-  searches?: AqlSearch[];
-  traversals?: AqlTraverse[];
-  prunes?: AqlPrune[];
-  windows?: AqlWindow[];
-}
+

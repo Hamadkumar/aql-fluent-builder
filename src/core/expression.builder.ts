@@ -14,7 +14,7 @@ import {
   AqlUnset,
   AqlValue
 } from './core.types';
-import { Path } from '../schema/types';
+
 
 /**
  * Builder class for creating AQL expressions with chainable methods
@@ -122,13 +122,7 @@ export class ExpressionBuilder<T = any> {
     });
   }
 
-  /**
-   * Create a reference to a property of this expression
-   * @deprecated Use .get() instead
-   */
-  property(name: string): ExpressionBuilder<any> {
-    return this.get(name as any);
-  }
+
 
   /**
    * Logical AND (&&)
@@ -296,39 +290,41 @@ export class ExpressionBuilder<T = any> {
 /**
  * Create a reference to a property or variable
  */
-export function ref<T = AqlValue>(name: Path<T> | `${string}.${Path<T>}`): ExpressionBuilder<T> {
-  return new ExpressionBuilder<T>({
+/**
+ * Create a reference to a property or variable
+ */
+/**
+ * Recursive Proxy type for deep property access
+ */
+export type RecursiveProxy<T> = ExpressionBuilder<T> & { [K in keyof T]: RecursiveProxy<T[K]> };
+
+function createRecursiveProxy<T>(builder: ExpressionBuilder<T>): RecursiveProxy<T> {
+  return new Proxy(builder, {
+    get(target, prop, receiver) {
+      if (prop in target) {
+        return Reflect.get(target, prop, receiver);
+      }
+
+      if (typeof prop === 'string') {
+        const nextBuilder = target.get(prop as any);
+        return createRecursiveProxy(nextBuilder);
+      }
+
+      return Reflect.get(target, prop, receiver);
+    }
+  }) as any;
+}
+
+export function ref<T = AqlValue>(name: string): RecursiveProxy<T> {
+  const builder = new ExpressionBuilder<T>({
     type: 'reference',
     name: name as string
   });
+
+  return createRecursiveProxy(builder);
 }
 
-/**
- * Create a reference to a variable
- */
-export function variable<T = any>(name: string): ExpressionBuilder<T> {
-  return new ExpressionBuilder<T>({
-    type: 'reference',
-    name
-  });
-}
 
-/**
- * Create a literal value
- */
-export function literal(value: string): ExpressionBuilder {
-  return new ExpressionBuilder({
-    type: 'literal',
-    value
-  });
-}
-
-/**
- * Create a string literal
- */
-export function str(value: string): ExpressionBuilder {
-  return literal(value);
-}
 
 /**
  * FLOOR function
@@ -1259,6 +1255,86 @@ export class MathFunctions {
       return value.getExpression();
     }
     return value as AqlExpression;
+  }
+}
+
+
+/**
+ * Search Functions for ArangoSearch
+ */
+export class SearchFunctions {
+  static analyzer(expr: ExpressionBuilder | string, analyzer: string): ExpressionBuilder {
+    const exprVal = typeof expr === 'string'
+      ? ({ type: 'reference', name: expr } as AqlExpression)
+      : (expr instanceof ExpressionBuilder ? expr.getExpression() : expr);
+
+    return new ExpressionBuilder({
+      type: 'function',
+      name: 'ANALYZER',
+      args: [exprVal, { type: 'literal', value: analyzer } as AqlLiteral]
+    } as AqlFunctionCall);
+  }
+
+  static boost(expr: ExpressionBuilder | string, boost: number): ExpressionBuilder {
+    const exprVal = typeof expr === 'string'
+      ? ({ type: 'reference', name: expr } as AqlExpression)
+      : (expr instanceof ExpressionBuilder ? expr.getExpression() : expr);
+
+    return new ExpressionBuilder({
+      type: 'function',
+      name: 'BOOST',
+      args: [exprVal, { type: 'literal', value: boost } as AqlLiteral]
+    } as AqlFunctionCall);
+  }
+
+  static phrase(expr: ExpressionBuilder | string, input: string | string[], analyzer?: string): ExpressionBuilder {
+    const exprVal = typeof expr === 'string'
+      ? ({ type: 'reference', name: expr } as AqlExpression)
+      : (expr instanceof ExpressionBuilder ? expr.getExpression() : expr);
+
+    const args: AqlExpression[] = [
+      exprVal,
+      { type: 'literal', value: input } as AqlLiteral
+    ];
+
+    if (analyzer) {
+      args.push({ type: 'literal', value: analyzer } as AqlLiteral);
+    }
+
+    return new ExpressionBuilder({
+      type: 'function',
+      name: 'PHRASE',
+      args
+    } as AqlFunctionCall);
+  }
+
+  static tokens(input: string, analyzer: string): ExpressionBuilder {
+    return new ExpressionBuilder({
+      type: 'function',
+      name: 'TOKENS',
+      args: [
+        { type: 'literal', value: input } as AqlLiteral,
+        { type: 'literal', value: analyzer } as AqlLiteral
+      ]
+    } as AqlFunctionCall);
+  }
+
+  static minMatch(expr: ExpressionBuilder | string, minMatch: string, ...matches: (ExpressionBuilder | string)[]): ExpressionBuilder {
+    const exprVal = typeof expr === 'string'
+      ? ({ type: 'reference', name: expr } as AqlExpression)
+      : (expr instanceof ExpressionBuilder ? expr.getExpression() : expr);
+
+    const matchExprs = matches.map(m =>
+      typeof m === 'string'
+        ? ({ type: 'reference', name: m } as AqlExpression)
+        : (m instanceof ExpressionBuilder ? m.getExpression() : m)
+    );
+
+    return new ExpressionBuilder({
+      type: 'function',
+      name: 'MIN_MATCH',
+      args: [exprVal, { type: 'literal', value: minMatch } as AqlLiteral, ...matchExprs]
+    } as AqlFunctionCall);
   }
 }
 

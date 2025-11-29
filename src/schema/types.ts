@@ -9,7 +9,6 @@ export interface DocumentSchema {
     _id?: string;
     _key?: string;
     _rev?: string;
-    [key: string]: any;
 }
 
 /**

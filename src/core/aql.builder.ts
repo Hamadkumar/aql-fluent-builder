@@ -22,7 +22,7 @@ import {
 } from './core.types';
 import { AqlQueryJson } from '../serialization/json.types';
 import { serializeQuery, deserializeQuery } from '../serialization/serializer';
-import { ExpressionBuilder, ref, variable } from './expression.builder';
+import { ExpressionBuilder, ref } from './expression.builder';
 import { DatabaseSchema, EdgeSchema } from '../schema/types';
 
 /**
@@ -55,6 +55,15 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   }
 
   /**
+   * Add WITH clause for read/write locks
+   */
+  with(...collections: string[]): this {
+    this.query.withCollections ??= [];
+    this.query.withCollections.push(...collections);
+    return this;
+  }
+
+  /**
    * Join with another collection
    */
   join<K extends keyof Schema = any>(collection: K, variableName: string): AQLBuilder<Schema> {
@@ -64,13 +73,17 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Set the FOR loop variable
    */
-  for(variableName: string): AQLBuilder<Schema> {
+  for(variableName: string | ExpressionBuilder): AQLBuilder<Schema> {
+    const varName = variableName instanceof ExpressionBuilder
+      ? this.extractVariableName(variableName)
+      : variableName;
+
     if (this.query.variable) {
-      this.currentJoin = { variable: variableName, source: '' };
+      this.currentJoin = { variable: varName, source: '' };
       this.query.joins ??= [];
       this.query.joins.push(this.currentJoin);
     } else {
-      this.query.variable = variableName;
+      this.query.variable = varName;
     }
     return this as unknown as AQLBuilder<Schema>;
   }
@@ -78,7 +91,10 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Set the collection or source for FOR loop
    */
-  in<K extends keyof Schema | string = string>(source: K | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema> {
+  /**
+   * Set the collection or source for FOR loop
+   */
+  in(source: (keyof Schema extends never ? string : keyof Schema) | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema> {
     const sourceValue = (typeof source === 'string' && !source.startsWith('@'))
       ? source as string
       : source as AqlValue as string | AqlRange | AqlGraph;
@@ -98,6 +114,14 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
       }
     }
     return this as unknown as AQLBuilder<Schema>;
+  }
+
+  /**
+   * Create a typed variable reference for a collection
+   */
+  ref<K extends keyof Schema>(collection: K, variableName: string): ExpressionBuilder<Schema[K]> & { [P in keyof Schema[K]]: ExpressionBuilder<Schema[K][P]> } {
+    void collection;
+    return ref<Schema[K]>(variableName as any);
   }
 
   /**
@@ -150,13 +174,17 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
    * Add a FILTER clause
    */
   filter(condition: ExpressionBuilder | AqlExpression): this {
-    this.query.filters ??= [];
-
     const expr = condition instanceof ExpressionBuilder
       ? condition.getExpression()
       : condition;
 
-    this.query.filters.push(expr);
+    if (this.query.collects && this.query.collects.length > 0) {
+      this.query.filtersPostCollect ??= [];
+      this.query.filtersPostCollect.push(expr);
+    } else {
+      this.query.filters ??= [];
+      this.query.filters.push(expr);
+    }
     return this;
   }
 
@@ -185,12 +213,16 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Add a REPLACE operation
    */
-  replace(variable: string): this {
+  replace(variable: string | ExpressionBuilder): this {
+    const varName = variable instanceof ExpressionBuilder
+      ? this.extractVariableName(variable)
+      : variable;
+
     this.query.operations ??= [];
     this.query.operations.push({
       type: 'REPLACE',
-      document: variable,
-      variable
+      document: varName,
+      variable: varName
     });
     return this;
   }
@@ -198,12 +230,16 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Add a REMOVE operation
    */
-  remove(variable: string): this {
+  remove(variable: string | ExpressionBuilder): this {
+    const varName = variable instanceof ExpressionBuilder
+      ? this.extractVariableName(variable)
+      : variable;
+
     this.query.operations ??= [];
     this.query.operations.push({
       type: 'REMOVE',
-      document: variable,
-      variable
+      document: varName,
+      variable: varName
     });
     return this;
   }
@@ -233,8 +269,10 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Set the RETURN clause
    */
-  return(value: AqlValue): this {
-    this.query.returnValue = value;
+  return(value: AqlValue | ExpressionBuilder): this {
+    this.query.returnValue = value instanceof ExpressionBuilder
+      ? value.getExpression()
+      : value;
     return this;
   }
 
@@ -264,9 +302,7 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
     return this;
   }
 
-  // ========================================================================
-  // UPSERT Operation
-  // ========================================================================
+
 
   /**
   * UPSERT operation: Insert or Update based on search condition
@@ -286,14 +322,18 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
   * UPDATE with detailed field updates
   */
-  updateWith(document: AqlValue, updates: Record<string, AqlValue>): this {
+  updateWith(document: string | ExpressionBuilder, updates: Record<string, AqlValue>): this {
+    const docName = document instanceof ExpressionBuilder
+      ? this.extractVariableName(document)
+      : document;
+
     if (!this.query.updatesEnhanced) {
       this.query.updatesEnhanced = [];
     }
 
     this.query.updatesEnhanced.push({
       type: 'UPDATE',
-      document,
+      document: docName,
       updateFields: updates,
       collection: this.query.collection || '',
       variable: this.query.variable,
@@ -329,11 +369,11 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
   * FOR with multiple loop variables (vertex, edge, path)
   */
-  forMultiple(vertex: string, edge: string, path: string): this {
+  forMultiple(vertex: string | ExpressionBuilder, edge?: string | ExpressionBuilder, path?: string | ExpressionBuilder): this {
     this.query.multipleLoopVars = {
-      vertex,
-      edge,
-      path
+      vertex: vertex instanceof ExpressionBuilder ? this.extractVariableName(vertex) : vertex,
+      edge: edge ? (edge instanceof ExpressionBuilder ? this.extractVariableName(edge) : edge) : undefined,
+      path: path ? (path instanceof ExpressionBuilder ? this.extractVariableName(path) : path) : undefined
     };
     return this;
   }
@@ -384,8 +424,6 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
     let expr: AqlValue;
 
     if (typeof condition === 'function') {
-      // Create builders for v, e, p
-      // Use the configured variable names if available, otherwise default to v, e, p
       const vName = this.query.multipleLoopVars?.vertex || 'v';
       const eName = this.query.multipleLoopVars?.edge || 'e';
       const pName = this.query.multipleLoopVars?.path || 'p';
@@ -437,44 +475,65 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
       this.query.collects = [];
     }
 
-    // Convert to regular collect with keep info
-    this.query.collects.push(collect as AqlValue as AqlCollect);
+    const variables: AqlCollectVariable[] = Object.entries(collect.variables).map(([key, value]) => ({
+      key,
+      value: this.expressionToString(value)
+    }));
+
+    const aggregate: AqlCollectAggregate[] = collect.aggregate
+      ? Object.entries(collect.aggregate).map(([name, expr]) => ({
+        name,
+        expression: this.expressionToString(expr)
+      }))
+      : [];
+
+    this.query.collects.push({
+      variables,
+      into: collect.into,
+      aggregate,
+      keep: collect.keep
+    });
     return this;
+  }
+
+  /**
+   * Extract variable name from ExpressionBuilder
+   */
+  private extractVariableName(builder: ExpressionBuilder): string {
+    const expr = builder.getExpression();
+    if (expr && typeof expr === 'object' && 'type' in expr && expr.type === 'reference') {
+      return (expr as any).name;
+    }
+    throw new Error('Cannot extract variable name from ExpressionBuilder');
   }
 
   /**
      * Convert expression to AQL string representation
      */
   expressionToString(expr: AqlValue): string {
-    // Extract expression from ExpressionBuilder wrapper
     if (expr instanceof ExpressionBuilder) {
       expr = expr.getExpression();
     }
 
-    // Handle AqlExpression objects with proper conversion
     if (expr && typeof expr === 'object' && 'type' in expr) {
-      // Use the proper AQL conversion function instead of wrong method
       const { aql } = expressionToAql(expr as AqlExpression, {}, 0);
       return aql;
     }
 
-    // Handle built query results (already compiled)
     if (expr && typeof expr === 'object' && 'query' in expr) {
       return `(${(expr as GeneratedAqlQuery).query})`;
     }
 
-    // Handle AQLBuilder instances (subqueries)
     if (expr instanceof AQLBuilder) {
       const subqueryResult = expr.build();
       return `(${subqueryResult.query})`;
     }
 
-    // Primitives and references
     if (typeof expr === 'string') {
       if (expr.startsWith('@') || expr.startsWith('REF')) {
         return expr;
       }
-      return expr;  // Variable names pass through as-is
+      return expr;
     }
 
     if (typeof expr === 'number') {
@@ -529,11 +588,9 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
     const letClause = { variable: variableName, expression: expression as AqlValue };
 
     if (this.query.collects && this.query.collects.length > 0) {
-      // If we have COLLECTs, this LET goes after them
       this.query.lets ??= [];
       this.query.lets.push(letClause);
     } else {
-      // No COLLECTs yet, this LET goes before them
       this.query.letsPreCollect ??= [];
       this.query.letsPreCollect.push(letClause);
     }
@@ -634,9 +691,8 @@ class CollectBuilder {
     private readonly variables: Record<string, AqlValue>
   ) { }
 
-  sort(...args: string[]): AQLBuilder {
-    // @ts-ignore
-    return this.builder.sort(...args);
+  sort(field: string, direction: 'ASC' | 'DESC' = 'ASC'): AQLBuilder {
+    return this.builder.sort(field, direction);
   }
 
 
@@ -684,10 +740,8 @@ class CollectBuilder {
      * Finalize COLLECT without INTO
      */
   build(): AQLBuilder {
-    // Create properly typed array for variables
     const variables: AqlCollectVariable[] = Object.entries(this.variables).map(
       ([key, value]) => {
-        // Uses the fixed expressionToString() method
         const valueStr = this.builder.expressionToString(value);
         return {
           key,
@@ -696,10 +750,8 @@ class CollectBuilder {
       }
     );
 
-    // Create properly typed array for aggregates
     const aggregates: AqlCollectAggregate[] = Array.from(this.aggregations.entries()).map(
       ([name, { function: fn, expression }]) => {
-        // Uses the fixed expressionToString() method
         const exprStr = this.builder.expressionToString(expression);
         return {
           name,
@@ -762,6 +814,10 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
   const bindVars: Record<string, AqlValue> = {};
   let paramCounter = 0;
 
+  if (query.withCollections && query.withCollections.length > 0) {
+    parts.push(`WITH ${query.withCollections.join(', ')}`);
+  }
+
   if (query.multipleLoopVars) {
     const { vertex, edge, path } = query.multipleLoopVars;
     let sourceStr = '';
@@ -776,8 +832,11 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
       }
     }
 
-    // FOR clause
-    parts.push(`FOR ${vertex}, ${edge}, ${path} IN ${sourceStr}`);
+
+    const vars = [vertex];
+    if (edge) vars.push(edge);
+    if (path) vars.push(path);
+    parts.push(`FOR ${vars.join(', ')} IN ${sourceStr}`);
   } else if (query.variable && query.source) {
     let sourceStr: string;
 
@@ -827,19 +886,34 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
+
+  if (query.filters) {
+    for (const filter of query.filters) {
+      const filterStr = expressionToAql(filter, bindVars, paramCounter);
+      paramCounter = filterStr.paramCounter;
+      parts.push(`FILTER ${filterStr.aql}`);
+    }
+  }
+
   if (query.collects && query.collects.length > 0) {
     for (const collect of query.collects) {
       const collectParts: string[] = [];
+      const varParts: string[] = [];
 
       if (collect.variables && collect.variables.length > 0) {
         const varStrings = collect.variables.map((v: AqlCollectVariable) => {
           return `${v.key} = ${v.value}`;
         });
-
-        collectParts.push(`COLLECT ${varStrings.join(', ')}`);
+        varParts.push(varStrings.join(', '));
       }
+
+      collectParts.push(`COLLECT ${varParts.join(', ')}`);
+
       if (collect.into) {
-        collectParts.push(`  INTO ${collect.into}`);  // Indent continuation
+        collectParts.push(`  INTO ${collect.into}`);
+        if (collect.keep && collect.keep.length > 0) {
+          collectParts.push(`  KEEP ${collect.keep.join(', ')}`);
+        }
       }
       if (collect.aggregate && collect.aggregate.length > 0) {
         const aggregateStrings = collect.aggregate.map((agg: AqlCollectAggregate) => {
@@ -876,16 +950,16 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-  // FILTER clauses
-  if (query.filters) {
-    for (const filter of query.filters) {
+
+  if (query.filtersPostCollect) {
+    for (const filter of query.filtersPostCollect) {
       const filterStr = expressionToAql(filter, bindVars, paramCounter);
       paramCounter = filterStr.paramCounter;
       parts.push(`FILTER ${filterStr.aql}`);
     }
   }
 
-  // SORT clauses
+
   if (query.sorts) {
     const sortParts = query.sorts.map(s => `${s.field} ${s.direction}`).join(', ');
     parts.push(`SORT ${sortParts}`);
@@ -906,14 +980,14 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-  // LIMIT clause
+
   if (query.limit !== undefined && query.offset !== undefined) {
     parts.push(`LIMIT ${query.offset}, ${query.limit}`);
   } else if (query.limit !== undefined) {
     parts.push(`LIMIT ${query.limit}`);
   }
 
-  // Operations (INSERT, REPLACE, REMOVE, UPDATE)
+
   if (query.operations) {
     for (const op of query.operations) {
       if (op.type === 'INSERT') {
@@ -934,18 +1008,14 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-  // UPSERT operations
   if (query.upserts && query.upserts.length > 0) {
     for (const upsert of query.upserts) {
-      // Convert search document
       const search = documentToAql(upsert.searchDoc, bindVars, paramCounter);
       paramCounter = search.paramCounter;
 
-      // Convert insert document
       const insert = documentToAql(upsert.insertDoc, bindVars, paramCounter);
       paramCounter = insert.paramCounter;
 
-      // Convert update document
       const update = documentToAql(upsert.updateDoc, bindVars, paramCounter);
       paramCounter = update.paramCounter;
 
@@ -957,7 +1027,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
   }
 
 
-  // UPDATE
   if (query.updatesEnhanced && query.updatesEnhanced.length > 0) {
     for (const update of query.updatesEnhanced) {
       const updateFields = documentToAql(update.updateFields, bindVars, paramCounter);
@@ -968,13 +1037,12 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
       parts.push(`IN ${update.collection}`);
 
       if (update.oldReference) {
-        // Return OLD and NEW references
         parts.push(`RETURN { old: OLD, new: NEW }`);
       }
     }
   }
 
-  // RETURN clause
+
   if (query.returnValue !== undefined) {
     const returnStr = expressionToAql(query.returnValue as AqlExpression, bindVars, paramCounter);
     parts.push(`RETURN ${returnStr.aql}`);
@@ -989,11 +1057,9 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
 function buildGraphTraversal(graph: AqlGraph): string {
   let traversal = `${graph.minDepth || 1}..${graph.maxDepth || graph.minDepth || 1}`;
 
-  const vertex = graph.startVertex.startsWith('@')
+  const vertex = (graph.startVertex.startsWith('@') || graph.startVertex.startsWith('"') || !graph.startVertex.includes('/'))
     ? graph.startVertex
-    : graph.startVertex.startsWith('"')
-      ? graph.startVertex
-      : `"${graph.startVertex}"`;
+    : `"${graph.startVertex}"`;
 
   traversal += ` ${graph.direction} ${vertex} GRAPH "${graph.graph}"`;
 
@@ -1041,7 +1107,6 @@ function expressionToAql(
         if (typedExpr.value === null) {
           return { aql: 'null', paramCounter };
         }
-        // Use bind variables for all other literals (string, number, boolean, array, object)
         const paramName = `value${paramCounter++}`;
         bindVars[paramName] = typedExpr.value;
         return { aql: `@${paramName}`, paramCounter };
@@ -1266,7 +1331,6 @@ function createOldBuilder(): OldBuilder {
       if (prop in target) {
         return target[prop as keyof OldBuilder];
       }
-      // Dynamic field access: old.visits -> OLD.visits
       return target.field(prop);
     }
   });
@@ -1282,9 +1346,8 @@ class CollectKeepBuilder {
     private readonly fields: string[]
   ) { }
 
-  sort(...args: string[]): AQLBuilder {
-    // @ts-ignore
-    return this.builder.sort(...args);
+  sort(field: string, direction: 'ASC' | 'DESC' = 'ASC'): AQLBuilder {
+    return this.builder.sort(field, direction);
   }
 
   into(groupName: string): AQLBuilder {
@@ -1309,13 +1372,13 @@ class CollectKeepBuilder {
   }
 }
 
-// Static factory methods for convenience
+
 export const AB = {
   for: (variable: string): AQLBuilder => {
     return new AQLBuilder().for(variable);
   },
   ref,
-  var: variable,
+
   value: (val: AqlValue): AqlValue => val,
   range: (start: number, end: number) => ({ type: 'range' as const, start, end }),
   str: (value: string) => value,

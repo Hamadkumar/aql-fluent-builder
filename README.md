@@ -66,6 +66,37 @@ console.log(query.query);
 // RETURN u
 ```
 
+### Deep Property Access with Proxy Pattern
+
+The `ref()` function returns a recursive proxy enabling natural property access:
+
+```typescript
+interface User {
+  _key: string;
+  name: string;
+  address: {
+    city: string;
+    country: string;
+  };
+}
+
+const u = ref<User>('u');
+
+// Access nested properties naturally - no .get() needed!
+const query = AB.for('u')
+  .in('users')
+  .filter(u.address.city.eq('New York'))  // Type-safe deep access
+  .return({
+    name: u.name,
+    city: u.address.city
+  })
+  .build();
+
+// FOR u IN users
+// FILTER (u.address.city == "New York")
+// RETURN {name: u.name, city: u.address.city}
+```
+
 ### Complex Filtering & Operations
 
 ```typescript
@@ -85,6 +116,78 @@ const query = AB.for('u')
     status: ref('u.active').then('"active"').else('"inactive"')
   })
   .build();
+```
+
+### Repository Pattern
+
+Use repositories for type-safe, reusable data access patterns:
+
+```typescript
+import { BaseRepository } from 'aql-fluent-builder';
+
+interface MySchema {
+  users: {
+    _key: string;
+    name: string;
+    age: number;
+    active: boolean;
+  };
+}
+
+class UserRepository extends BaseRepository<MySchema, 'users'> {
+  constructor() {
+    super('users');
+  }
+  
+  findAdults() {
+    return this.findAll({
+      filter: (u) => u.get('age').gte(18)
+    });
+  }
+}
+
+const userRepo = new UserRepository();
+
+// CRUD operations
+await db.query(userRepo.findById('123').build());
+await db.query(userRepo.create({ name: 'Alice', age: 30 }).build());
+await db.query(userRepo.update('123', { age: 31 }).build());
+await db.query(userRepo.delete('123').build());
+
+// Count documents
+const totalUsers = await db.query(userRepo.count().build());
+const adultCount = await db.query(userRepo.count(u => u.get('age').gte(18)).build());
+
+// Check existence
+const exists = await db.query(userRepo.exists('123').build());
+
+// Upsert (insert or update)
+await db.query(userRepo.upsert(
+  { email: 'alice@example.com' },  // Search criteria
+  { name: 'Alice', email: 'alice@example.com', age: 30 },  // Insert data
+  { age: 31 }  // Update data (optional)
+).build());
+
+// Get distinct values
+const roles = await db.query(userRepo.distinct('role').build());
+
+// Batch operations
+await db.query(userRepo.createMany([
+  { name: 'Alice', age: 20 },
+  { name: 'Bob', age: 30 }
+]).build());
+
+await db.query(userRepo.updateMany(
+  { filter: (u) => u.get('age').lt(18) },
+  { active: false }
+).build());
+
+// Pagination
+const result = await db.query(userRepo.paginate(1, 20, {
+  filter: (u) => u.get('active').eq(true),
+  sort: { field: 'name', direction: 'ASC' }
+}).build());
+// Returns: { data: [...], total: 150, page: 1, pageSize: 20 }
 ```
 
 ### Graph Traversal
@@ -145,6 +248,7 @@ console.log(spec);
 
 The main entry point.
 
+- **`with(...collections)`**: Add WITH clause for read/write locks.
 - **`for(variable)`**: Start a loop.
 - **`in(collection)`**: Specify source.
 - **`filter(expression)`**: Add conditions.
@@ -158,6 +262,27 @@ The main entry point.
 - **`update(doc).with(changes).in(collection)`**: Update data.
 - **`upsert(search).insert(doc).update(doc).in(collection)`**: Upsert data.
 - **`remove(doc).in(collection)`**: Remove data.
+
+### `BaseRepository`
+
+Repository for type-safe CRUD operations:
+
+- **`findAll(options?)`**: Query all documents with optional filtering and sorting.
+- **`findOne(options?)`**: Find a single document.
+- **`findById(key)`**: Find document by its `_key`.
+- **`count(filter?)`**: Count documents, optionally with a filter.
+- **`exists(id)`**: Check if a document exists by ID.
+- **`create(data)`**: Insert a new document.
+- **`update(key, data)`**: Update a document by key.
+- **`upsert(search, insert, update?)`**: Insert or update based on search criteria.
+- **`delete(key)`**: Delete a document by key.
+- **`distinct(field)`**: Get distinct values for a field.
+- **`createMany(data[])`**: Batch insert multiple documents.
+- **`updateBatch(data[])`**: Batch update documents (each must have `_key` or `_id`).
+- **`deleteBatch(keys[])`**: Batch delete documents by keys.
+- **`updateMany(options, data)`**: Update multiple documents matching a filter.
+- **`deleteMany(options)`**: Delete multiple documents matching a filter.
+- **`paginate(page, pageSize, options?)`**: Get paginated results with total count.
 
 ### `ExpressionBuilder` (`ref`)
 

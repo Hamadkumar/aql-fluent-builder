@@ -5,9 +5,11 @@
 
 export interface AqlQueryJson {
     collection?: string;
+    withCollections?: string[];
     variable?: string;
     source?: string | AqlRangeJson | AqlGraphJson;
     filters?: AqlExpressionJson[];
+    filtersPostCollect?: AqlExpressionJson[];
     operations?: AqlOperationJson[];
     collects?: AqlCollectJson[];
     sorts?: AqlSortJson[];

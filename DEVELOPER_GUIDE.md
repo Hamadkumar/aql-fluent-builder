@@ -8,6 +8,7 @@ A comprehensive, type-safe query builder for ArangoDB AQL queries in TypeScript.
 - [Core Concepts](#core-concepts)
 - [Basic Usage](#basic-usage)
 - [Query Operations](#query-operations)
+- [Repository Pattern](#repository-pattern)
 - [Expressions & Filters](#expressions--filters)
 - [Aggregations & Grouping](#aggregations--grouping)
 - [Graph Operations](#graph-operations)
@@ -194,6 +195,345 @@ AB.for('user')
   });
 ```
 
+```
+
+### WITH
+
+Specify collections for read/write locks in transactions:
+
+```typescript
+// Lock collections for exclusive access
+AB.with('users', 'orders')
+  .for('user')
+  .in('users')
+  .filter(ref('user.balance').lt(0))
+  .updateWith('user', { balance: 0 })
+  .return('NEW');
+
+// Use WITH for transaction control
+AB.with('inventory', 'orders')
+  .for('order')
+  .in('orders')
+  .filter(ref('order.status').eq('pending'))
+  .let('item', ref('order.itemId'))
+  .updateWith('order', { status: 'confirmed' })
+  .return('NEW');
+
+// WITH users, orders
+// FOR order IN orders
+// FILTER (order.status == "pending")
+// LET item = order.itemId
+// UPDATE order WITH {"status": "confirmed"} IN orders
+// RETURN NEW
+```
+
+---
+
+## Repository Pattern
+
+The repository pattern provides a clean, type-safe abstraction for data access operations.
+
+### Creating a Repository
+
+```typescript
+import { BaseRepository } from 'aql-fluent-builder';
+
+interface MySchema {
+  users: {
+    _key: string;
+    _id: string;
+    name: string;
+    email: string;
+    age: number;
+    active: boolean;
+  };
+}
+
+class UserRepository extends BaseRepository<MySchema, 'users'> {
+  constructor() {
+    super('users');
+  }
+  
+  // Custom query methods
+  findAdults() {
+    return this.findAll({
+      filter: (u) => u.get('age').gte(18)
+    });
+  }
+  
+  findByEmail(email: string) {
+    return this.findOne({
+      filter: (u) => u.get('email').eq(email)
+    });
+  }
+}
+
+const userRepo = new UserRepository();
+```
+
+### CRUD Operations
+
+#### findAll - Query Multiple Documents
+
+```typescript
+// All users
+const allUsers = userRepo.findAll().build();
+
+// With filter
+const activeUsers = userRepo.findAll({
+  filter: (u) => u.get('active').eq(true)
+}).build();
+
+// With sorting
+const sortedUsers = userRepo.findAll({
+  sort: { field: 'name', direction: 'ASC' }
+}).build();
+
+// With limit
+const recentUsers = userRepo.findAll({
+  sort: { field: 'createdAt', direction: 'DESC' },
+  limit: 10
+}).build();
+```
+
+#### findOne - Query Single Document
+
+```typescript
+const user = userRepo.findOne({
+  filter: (u) => u.get('email').eq('alice@example.com')
+}).build();
+```
+
+#### findById - Get by Key
+
+```typescript
+const user = userRepo.findById('user123').build();
+// FOR doc IN users FILTER doc._key == @value0 RETURN doc
+```
+
+#### create - Insert Document
+
+```typescript
+const newUser = userRepo.create({
+  name: 'Alice',
+  email: 'alice@example.com',
+  age: 30,
+  active: true
+}).build();
+
+// INSERT {name: "Alice", ...} INTO users RETURN NEW
+```
+
+#### update - Update by Key
+
+```typescript
+const updated = userRepo.update('user123', {
+  age: 31,
+  active: false
+}).build();
+
+// UPDATE "user123" WITH {...} IN users RETURN NEW
+```
+
+#### delete - Delete by Key
+
+```typescript
+const deleted = userRepo.delete('user123').build();
+// REMOVE "user123" IN users RETURN OLD
+```
+
+### Batch Operations
+
+#### createMany - Batch Insert
+
+```typescript
+const users = userRepo.createMany([
+  { name: 'Alice', age: 20, email: 'alice@example.com', active: true },
+  { name: 'Bob', age: 30, email: 'bob@example.com', active: true },
+  { name: 'Charlie', age: 25, email: 'charlie@example.com', active: false }
+]).build();
+
+// FOR doc IN @data INSERT doc INTO users RETURN NEW
+```
+
+#### updateBatch - Batch Update by Key
+
+```typescript
+const updated = userRepo.updateBatch([
+  { _key: 'user1', age: 21 },
+  { _key: 'user2', age: 31 },
+  { _id: 'users/user3', active: false }
+]).build();
+
+// FOR doc IN @data UPDATE doc IN users RETURN NEW
+```
+
+#### deleteBatch - Batch Delete by Keys
+
+```typescript
+const deleted = userRepo.deleteBatch(['user1', 'user2', 'user3']).build();
+// FOR key IN @keys REMOVE key IN users RETURN OLD
+```
+
+#### updateMany - Update by Filter
+
+```typescript
+const updated = userRepo.updateMany(
+  { filter: (u) => u.get('age').lt(18) },
+  { active: false }
+).build();
+
+// FOR doc IN users
+// FILTER (doc.age < 18)
+// UPDATE doc WITH {active: false} IN users
+// RETURN NEW
+```
+
+#### deleteMany - Delete by Filter
+
+```typescript
+const deleted = userRepo.deleteMany({
+  filter: (u) => u.get('active').eq(false)
+}).build();
+
+// FOR doc IN users
+// FILTER (doc.active == false)
+// REMOVE doc IN users
+// RETURN OLD
+```
+
+### Additional Repository Methods
+
+#### count - Count Documents
+
+Get the total count of documents matching criteria:
+
+```typescript
+// Count all documents
+const totalCount = userRepo.count().build();
+// FOR doc IN users
+// COLLECT AGGREGATE count = COUNT(1)
+// RETURN count
+
+// Count with filter
+const adultCount = userRepo.count(u => u.get('age').gte(18)).build();
+// FOR doc IN users
+// FILTER (doc.age >= 18)
+// COLLECT AGGREGATE count = COUNT(1)
+// RETURN count
+```
+
+#### exists - Check Existence
+
+Check if a document exists by ID:
+
+```typescript
+const exists = userRepo.exists('user123').build();
+// RETURN EXISTS(DOCUMENT('users', 'user123'))
+```
+
+#### upsert - Insert or Update
+
+Perform an upsert operation (insert if not exists, update if exists):
+
+```typescript
+// Upsert with default update (uses insert data)
+const result = userRepo.upsert(
+  { email: 'alice@example.com' },  // Search criteria
+  { name: 'Alice', email: 'alice@example.com', age: 30 }  // Insert data
+).build();
+
+// Upsert with custom update
+const result2 = userRepo.upsert(
+  { email: 'alice@example.com' },
+  { name: 'Alice', email: 'alice@example.com', age: 30 },
+  { age: 31, lastSeen: Date.now() }  // Custom update data
+).build();
+
+// UPSERT {"email": "alice@example.com"}
+// INSERT {"name": "Alice", "email": "alice@example.com", "age": 30}
+// UPDATE {"age": 31, "lastSeen": 1234567890}
+// IN users
+// RETURN NEW
+```
+
+#### distinct - Get Distinct Values
+
+Get unique values for a specific field:
+
+```typescript
+const roles = userRepo.distinct('role').build();
+// FOR doc IN users
+// RETURN DISTINCT(doc.role)
+
+const countries = userRepo.distinct('country').build();
+// FOR doc IN users
+// RETURN DISTINCT(doc.country)
+```
+
+### Pagination
+
+The `paginate` method returns paginated data with metadata:
+
+```typescript
+const result = userRepo.paginate(2, 20, {
+  filter: (u) => u.get('active').eq(true),
+  sort: { field: 'createdAt', direction: 'DESC' }
+}).build();
+
+// Returns:
+// {
+//   data: [...],      // Array of documents for page 2
+//   total: 150,       // Total matching documents
+//   page: 2,          // Current page
+//   pageSize: 20      // Items per page
+// }
+```
+
+**Generated AQL:**
+```sql
+FOR doc IN users
+FILTER (doc.active == true)
+SORT doc.createdAt DESC
+COLLECT {} INTO allItems
+RETURN {
+  "data": SLICE(allItems, 20, 20),
+  "total": LENGTH(allItems),
+  "page": 2,
+  "pageSize": 20
+}
+```
+
+### Edge Collections
+
+For graph edges, use `EdgeRepository`:
+
+```typescript
+import { EdgeRepository } from 'aql-fluent-builder';
+
+interface MySchema {
+  users: { _key: string; name: string };
+  follows: { _from: string; _to: string; since: number };
+}
+
+class FollowsRepository extends EdgeRepository<MySchema, 'follows'> {
+  constructor() {
+    super('follows');
+  }
+}
+
+const followsRepo = new FollowsRepository();
+
+// Outbound traversal
+const following = followsRepo.outbound('users/alice', 1, 2).build();
+
+// Inbound traversal
+const followers = followsRepo.inbound('users/alice', 1, 1).build();
+
+// Any direction
+const connections = followsRepo.any('users/alice', 1, 3).build();
+```
+
 ---
 
 ## Expressions & Filters
@@ -266,6 +606,171 @@ CONCAT(ref('user.firstName'), ' ', ref('user.lastName'))
 LIKE(ref('user.email'), '@%.com%')
 ref('user.email').like('%@example.com')
 ref('user.email').regex('^[a-z]+@', 'i')
+```
+
+### Type-Safe Field Access
+
+The library provides two approaches for type-safe field access:
+
+#### 1. Using `.get()` Method
+
+Use the `.get()` method for explicit, type-safe field access:
+
+```typescript
+// Create a typed reference
+const user = ref<User>('user');
+
+// Access fields in a type-safe way
+user.get('name')        // Type-safe field access
+user.get('age').gt(18)  // Chaining with operators
+user.get('email').like('%@example.com')
+
+// Use in repository filters
+userRepo.findAll({
+  filter: (u) => u.get('age').gte(18).and(u.get('active').eq(true))
+});
+
+// The .get() method provides IntelliSense for field names
+// and prevents accessing non-existent fields at compile time
+```
+
+#### 2. Using Recursive Proxy Pattern (Deep Property Access)
+
+The `ref()` function returns a recursive proxy that enables natural property access syntax:
+
+```typescript
+interface User {
+  _key: string;
+  name: string;
+  age: number;
+  email: string;
+  address: {
+    street: string;
+    city: string;
+    country: string;
+    coordinates: {
+      lat: number;
+      lng: number;
+    };
+  };
+  tags: string[];
+  metadata: {
+    lastLogin: number;
+    loginCount: number;
+  };
+}
+
+// Deep property access with proxy
+const u = ref<User>('u');
+
+// Access nested properties naturally
+AB.for('u')
+  .in('users')
+  .filter(u.address.city.eq('New York'))  // Deep access: u.address.city
+  .return('u');
+
+// Multiple levels of nesting
+AB.for('u')
+  .in('users')
+  .filter(u.address.coordinates.lat.gt(40.7))
+  .filter(u.address.coordinates.lng.lt(-73.9))
+  .return('u');
+
+// Combined with operators
+AB.for('u')
+  .in('users')
+  .filter(
+    u.age.gte(18)
+      .and(u.address.country.eq('USA'))
+      .and(u.metadata.loginCount.gt(10))
+  )
+  .return('u');
+
+// Use in RETURN statements
+AB.for('u')
+  .in('users')
+  .return({
+    name: u.name,               // Direct property access
+    city: u.address.city,       // Nested property
+    lat: u.address.coordinates.lat
+  });
+```
+
+#### Comparison: .get() vs Proxy Pattern
+
+```typescript
+// Using .get() - explicit, step-by-step
+const user = ref<User>('user');
+user.get('address').get('city').eq('NYC');
+
+// Using proxy - natural, direct access
+const user = ref<User>('user');
+user.address.city.eq('NYC');  // ✨ Cleaner syntax!
+
+// Both approaches are type-safe and validate fields at compile time
+```
+
+#### Advanced Proxy Examples
+
+```typescript
+// Array property access
+const u = ref<User>('u');
+AB.for('u')
+  .in('users')
+  .filter(u.tags.in(['premium', 'verified']))
+  .return('u');
+
+// Complex nested conditions
+AB.for('order')
+  .in('orders')
+  .filter(
+    ref<Order>('order').customer.address.country.eq('USA')
+      .and(ref<Order>('order').items[0].price.gt(100))
+  )
+  .return('order');
+
+// Use with ternary operators
+AB.for('u')
+  .in('users')
+  .return({
+    name: u.name,
+    location: u.address.city
+      .then(u.address.city)
+      .else('"Unknown"')
+      .getExpression()
+  });
+
+// Combining with functions
+import { UPPER, CONCAT } from 'aql-fluent-builder';
+
+AB.for('u')
+  .in('users')
+  .return({
+    displayName: CONCAT(u.name, ' (', u.address.city, ')'),
+    email: UPPER(u.email)
+  });
+```
+
+#### Type Safety Benefits
+
+```typescript
+interface Product {
+  _key: string;
+  name: string;
+  price: number;
+}
+
+const p = ref<Product>('p');
+
+// ✅ Valid - TypeScript knows 'price' exists
+p.price.gt(100)
+
+// ❌ TypeScript Error - 'invalidField' doesn't exist on Product
+// p.invalidField.eq(true)  
+
+// ✅ IntelliSense suggests: _key, name, price
+// Type: p.
+//       ^ IntelliSense shows available fields
 ```
 
 ### Array Functions
@@ -388,6 +893,41 @@ AB.for('order')
     userId: ref('userId'),
     totalAmount: ref('totalAmount')
   });
+```
+
+### FILTER Ordering with COLLECT
+
+The builder intelligently handles filter ordering:
+
+- **Filters added BEFORE `.collect()`** are placed before the COLLECT clause (filter documents first)
+- **Filters added AFTER `.collect()`** are placed after the COLLECT clause (filter aggregated results)
+
+```typescript
+// Pre-COLLECT filtering (filters individual documents)
+AB.for('order')
+  .in('orders')
+  .filter(ref('order.status').eq('completed'))  // Applied BEFORE grouping
+  .collect({ customerId: 'order.customerId' })
+  .sum('total', ref('order.amount'))
+  .build();
+
+// FOR order IN orders
+// FILTER (order.status == "completed")  -- Before COLLECT
+// COLLECT customerId = order.customerId AGGREGATE total = SUM(order.amount)
+
+// Post-COLLECT filtering (filters aggregated results)
+AB.for('order')
+  .in('orders')
+  .collect({ customerId: 'order.customerId' })
+  .sum('total', ref('order.amount'))
+  .build()
+  .filter(ref('total').gt(1000))  // Applied AFTER grouping
+  .return({ customerId: ref('customerId'), total: ref('total') });
+
+// FOR order IN orders
+// COLLECT customerId = order.customerId AGGREGATE total = SUM(order.amount)
+// FILTER (total > 1000)  -- After COLLECT
+// RETURN {customerId: customerId, total: total}
 ```
 
 ---
@@ -696,6 +1236,7 @@ builder
 
 #### Query Construction
 
+- `with(...collections)` - Add WITH clause for read/write locks
 - `for(variable: string)` - Start a FOR loop
 - `forMultiple(vertex, edge, path)` - Start a FOR loop with multiple variables (graph)
 - `in(source)` - Specify collection or source
@@ -755,6 +1296,33 @@ builder
 - `toJSON()` - Serialize to JSON
 - `fromJSON(json)` - Deserialize from JSON (static)
 
+### BaseRepository Methods
+
+#### Query Methods
+
+- `findAll(options?)` - Query all documents with optional filtering and sorting
+- `findOne(options?)` - Find a single document
+- `findById(key)` - Find document by its `_key`
+- `count(filter?)` - Count documents, optionally with a filter
+- `exists(id)` - Check if a document exists by ID
+
+#### CRUD Operations
+
+- `create(data)` - Insert a new document
+- `update(key, data)` - Update a document by key
+- `upsert(search, insert, update?)` - Insert or update based on search criteria
+- `delete(key)` - Delete a document by key
+- `distinct(field)` - Get distinct values for a field
+
+#### Batch Operations
+
+- `createMany(data[])` - Batch insert multiple documents
+- `updateBatch(data[])` - Batch update documents (each must have `_key` or `_id`)
+- `deleteBatch(keys[])` - Batch delete documents by keys
+- `updateMany(options, data)` - Update multiple documents matching a filter
+- `deleteMany(options)` - Delete multiple documents matching a filter
+- `paginate(page, pageSize, options?)` - Get paginated results with total count
+
 ### ExpressionBuilder Methods
 
 #### Comparison
@@ -799,6 +1367,7 @@ builder
 
 #### Utility
 
+- `get(field)` - Type-safe field access (returns ExpressionBuilder for the field)
 - `getExpression()` - Get underlying AQL expression
 
 ### Built-in Functions
