@@ -91,9 +91,6 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   /**
    * Set the collection or source for FOR loop
    */
-  /**
-   * Set the collection or source for FOR loop
-   */
   in(source: (keyof Schema extends never ? string : keyof Schema) | AqlRange | AqlGraph | `@${string}` | `@@${string}`): AQLBuilder<Schema> {
     const sourceValue = (typeof source === 'string' && !source.startsWith('@'))
       ? source as string
@@ -302,8 +299,6 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
     return this;
   }
 
-
-
   /**
   * UPSERT operation: Insert or Update based on search condition
   */
@@ -508,8 +503,8 @@ export class AQLBuilder<Schema extends DatabaseSchema = DatabaseSchema> {
   }
 
   /**
-     * Convert expression to AQL string representation
-     */
+   * Convert expression to AQL string representation
+   */
   expressionToString(expr: AqlValue): string {
     if (expr instanceof ExpressionBuilder) {
       expr = expr.getExpression();
@@ -695,7 +690,6 @@ class CollectBuilder {
     return this.builder.sort(field, direction);
   }
 
-
   /**
      * Add COUNT aggregation
      */
@@ -832,7 +826,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
       }
     }
 
-
     const vars = [vertex];
     if (edge) vars.push(edge);
     if (path) vars.push(path);
@@ -885,7 +878,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
       parts.push(`SEARCH ${search.view} ${conditions}`);
     }
   }
-
 
   if (query.filters) {
     for (const filter of query.filters) {
@@ -959,7 +951,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-
   if (query.sorts) {
     const sortParts = query.sorts.map(s => `${s.field} ${s.direction}`).join(', ');
     parts.push(`SORT ${sortParts}`);
@@ -980,13 +971,11 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-
   if (query.limit !== undefined && query.offset !== undefined) {
     parts.push(`LIMIT ${query.offset}, ${query.limit}`);
   } else if (query.limit !== undefined) {
     parts.push(`LIMIT ${query.limit}`);
   }
-
 
   if (query.operations) {
     for (const op of query.operations) {
@@ -1026,7 +1015,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
     }
   }
 
-
   if (query.updatesEnhanced && query.updatesEnhanced.length > 0) {
     for (const update of query.updatesEnhanced) {
       const updateFields = documentToAql(update.updateFields, bindVars, paramCounter);
@@ -1041,7 +1029,6 @@ export function buildQuery(query: AqlQuery): GeneratedAqlQuery {
       }
     }
   }
-
 
   if (query.returnValue !== undefined) {
     const returnStr = expressionToAql(query.returnValue as AqlExpression, bindVars, paramCounter);
@@ -1372,13 +1359,11 @@ class CollectKeepBuilder {
   }
 }
 
-
 export const AB = {
   for: (variable: string): AQLBuilder => {
     return new AQLBuilder().for(variable);
   },
   ref,
-
   value: (val: AqlValue): AqlValue => val,
   range: (start: number, end: number) => ({ type: 'range' as const, start, end }),
   str: (value: string) => value,

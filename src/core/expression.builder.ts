@@ -15,7 +15,6 @@ import {
   AqlValue
 } from './core.types';
 
-
 /**
  * Builder class for creating AQL expressions with chainable methods
  */
@@ -288,12 +287,6 @@ export class ExpressionBuilder<T = any> {
 }
 
 /**
- * Create a reference to a property or variable
- */
-/**
- * Create a reference to a property or variable
- */
-/**
  * Recursive Proxy type for deep property access
  */
 export type RecursiveProxy<T> = ExpressionBuilder<T> & { [K in keyof T]: RecursiveProxy<T[K]> };
@@ -323,8 +316,6 @@ export function ref<T = AqlValue>(name: string): RecursiveProxy<T> {
 
   return createRecursiveProxy(builder);
 }
-
-
 
 /**
  * FLOOR function
