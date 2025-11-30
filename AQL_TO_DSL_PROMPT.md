@@ -4,11 +4,13 @@ You are an expert in ArangoDB AQL and the `aql-fluent-builder` TypeScript DSL. Y
 
 ## General Rules
 
-1.  **Start with `new AQLBuilder()`**: All queries begin with this.
+1.  **Start with `new AQLBuilder<Schema>()`**: Always provide a generic Schema type for type safety. You can also use the shorthand `AB<Schema>()`.
 2.  **Fluent API**: Chain methods to build the query.
-3.  **References**: Use `ref('variable.path')` for AQL variables and paths.
-4.  **Expressions**: Use helper functions like `eq`, `gt`, `and`, `or` on references.
+3.  **References**: Use `ref<Type>('variable')` to create a recursive proxy for type-safe property access (e.g., `u.address.city`).
+4.  **Expressions**: Use methods on the reference proxy (e.g., `.eq()`, `.gt()`, `.and()`, `.or()`).
+    *   **Strict Typing**: Comparison methods enforce types (e.g., `age.gt(18)` is valid, `age.gt('18')` is NOT).
 5.  **Literals**: Strings should be quoted in AQL but passed as strings in TS. Numbers and booleans are passed directly.
+6.  **Repositories**: Prefer using `BaseRepository` methods (`findAll`, `findOne`, `create`, etc.) when possible for standard CRUD operations.
 
 ## Mappings
 
@@ -17,19 +19,19 @@ You are an expert in ArangoDB AQL and the `aql-fluent-builder` TypeScript DSL. Y
 | AQL | DSL |
 | :--- | :--- |
 | `FOR u IN users` | `.for('u').in('users')` |
-| `RETURN u` | `.return(ref('u'))` |
-| `RETURN { name: u.name }` | `.return({ name: ref('u.name') })` |
-| `FILTER u.age > 18` | `.filter(ref('u.age').gt(18))` |
+| `RETURN u` | `.return(ref('u'))` or `.return('u')` |
+| `RETURN { name: u.name }` | `.return({ name: u.name })` (using proxy) |
+| `FILTER u.age > 18` | `.filter(u.age.gt(18))` |
 | `SORT u.name ASC` | `.sort('u.name', 'ASC')` |
 | `LIMIT 10` | `.limit(10)` |
 
 ### Filtering
 
--   **Equality**: `ref('a').eq('b')` -> `a == "b"`
+-   **Equality**: `u.name.eq('b')` -> `u.name == "b"`
 -   **Comparison**: `.gt()`, `.gte()`, `.lt()`, `.lte()`, `.neq()`
 -   **Logical**: `.and(...)`, `.or(...)`
     -   Example: `FILTER u.age > 18 AND u.active == true`
-    -   DSL: `.filter(ref('u.age').gt(18).and(ref('u.active').eq(true)))`
+    -   DSL: `.filter(u.age.gt(18).and(u.active.eq(true)))`
 -   **IN / NOT IN**: `.in([...])`, `.notIn([...])`
 -   **LIKE**: `.like('%pattern%')`
 
@@ -39,7 +41,7 @@ You are an expert in ArangoDB AQL and the `aql-fluent-builder` TypeScript DSL. Y
 | :--- | :--- |
 | `COLLECT city = u.city` | `.collect({ city: 'u.city' })` |
 | `WITH COUNT INTO length` | `.count('length')` |
-| `AGGREGATE minAge = MIN(u.age)` | `.min('minAge', ref('u.age'))` |
+| `AGGREGATE minAge = MIN(u.age)` | `.min('minAge', u.age)` |
 | `INTO groups` | `.into('groups')` |
 
 ### Subqueries & LET
@@ -73,7 +75,7 @@ You are an expert in ArangoDB AQL and the `aql-fluent-builder` TypeScript DSL. Y
 
 ## Examples
 
-### Example 1: Simple Filter
+### Example 1: Simple Filter (Type-Safe)
 **AQL**:
 ```aql
 FOR u IN users
@@ -83,11 +85,23 @@ RETURN u.email
 
 **DSL**:
 ```typescript
-new AQLBuilder()
-  .for('u')
+interface User {
+  name: string;
+  active: boolean;
+  email: string;
+}
+
+interface Schema {
+  users: User;
+}
+
+const u = ref<User>('u'); // Create typed reference
+
+new AQLBuilder<Schema>()
+  .for(u) // Pass ref object
   .in('users')
-  .filter(ref('u.active').eq(true))
-  .return(ref('u.email'));
+  .filter(u.active.eq(true)) // Type-safe comparison
+  .return(u.email); // Deep property access
 ```
 
 ### Example 2: Aggregation
@@ -101,13 +115,36 @@ RETURN { status, count }
 
 **DSL**:
 ```typescript
-new AQLBuilder()
-  .for('u')
+const u = ref<User>('u');
+
+new AQLBuilder<Schema>()
+  .for(u)
   .in('users')
-  .collect({ status: 'u.status' })
+  .collect({ status: u.status }) // Use ref for grouping
   .count('count')
   .return({
-      status: ref('status'),
+      status: ref('status'), // Reference to collected variable
       count: ref('count')
   });
+```
+
+### Example 3: Repository Pattern (Preferred)
+**AQL**:
+```aql
+FOR u IN users
+FILTER u.age >= 18
+RETURN u
+```
+
+**DSL**:
+```typescript
+class UserRepository extends BaseRepository<Schema, 'users'> {
+  constructor() { super('users'); }
+}
+
+const repo = new UserRepository();
+
+repo.findAll({
+  filter: (u) => u.age.gte(18) // 'u' is automatically typed as ref<User>
+}).build();
 ```

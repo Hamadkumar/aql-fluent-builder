@@ -44,7 +44,6 @@ export class BaseRepository<
 
         if (options.filter) {
             if (typeof options.filter === 'function') {
-                // AB now returns ExpressionBuilder<Doc>
                 builder.filter(options.filter(ref<Doc>(variable)));
             } else {
                 builder.filter(options.filter);
@@ -314,10 +313,7 @@ export class BaseRepository<
         let updateData: Partial<Doc> | Record<string, AqlValue> = {};
 
         if (update === false) {
-            updateData = {}; // Empty update (effectively no-op if we could, but UPSERT requires UPDATE clause usually, or we use REPLACE)
-            // Actually AQL UPSERT syntax is: UPSERT search INSERT insert UPDATE update IN collection
-            // If we want "insert only", we might need a different approach or just update with empty? 
-            // But UPDATE with empty object is valid.
+            updateData = {};
         } else if (update === true || update === undefined) {
             updateData = insert;
         } else {

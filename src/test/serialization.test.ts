@@ -39,7 +39,6 @@ describe('AST Serialization', () => {
             returnValue: { type: 'reference', name: 'u' }
         });
 
-        // Verify filter structure
         const filter = json.filters![0];
         expect(filter).toEqual({
             type: 'binary',

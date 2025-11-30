@@ -23,8 +23,6 @@ describe('Comprehensive Type Safety Tests', () => {
             expect(query.query).toBe('FOR e IN friends\nRETURN e');
         });
 
-        // Note: Invalid collection names would cause a compile-time error.
-        // e.g., .in('invalid_collection') would fail TS check.
     });
 
     describe('2. Field Safety', () => {
@@ -72,10 +70,10 @@ describe('Comprehensive Type Safety Tests', () => {
             const u = ref<User>('u');
             const query = new AQLBuilder<ComplexTestSchema>()
                 .for(u).in('users')
-                .filter(u.tags!.in(['admin', 'editor'])) // .in() is generic, but type safe on the value side
+                .filter(u.role!.in(['admin', 'editor']))
                 .return(u).build();
 
-            expect(query.query).toContain('u.tags IN @inValues0');
+            expect(query.query).toContain('u.role IN @inValues0');
         });
     });
 
@@ -108,8 +106,6 @@ describe('Comprehensive Type Safety Tests', () => {
             const u = ref<User>('u');
             const pur = ref<PurchaseEdge>('pur');
 
-            // Simulating a join via edge (though typically done with graph traversal)
-            // Here just testing multiple refs in one query
             const query = new AQLBuilder<ComplexTestSchema>()
                 .for(u).in('users')
                 .for(pur).in('purchases')

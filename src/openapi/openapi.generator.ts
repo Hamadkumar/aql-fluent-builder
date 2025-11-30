@@ -142,9 +142,9 @@ function extractParameters(json: any): OpenApiParameter[] {
 
     return Array.from(params).map(name => ({
         name,
-        in: 'query', // Default to query param
+        in: 'query',
         schema: {
-            type: 'string' // Default to string
+            type: 'string'
         }
     }));
 }

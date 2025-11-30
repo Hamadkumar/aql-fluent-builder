@@ -5,13 +5,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AppSchema } from '../schema/mocks';
 
-// Define a mock schema for generation
-// Mock Schema imported from mocks.ts
-
-// Define the API operations
 const operations: OpenApiOperation[] = [];
 
-// 1. Get Users
 const getUsersQuery = new AQLBuilder<AppSchema>()
     .for('u')
     .in('users')
@@ -28,7 +23,6 @@ operations.push(generateOpenApiSpec(getUsersQuery, {
     tags: ['Users']
 }));
 
-// 2. Get User By ID
 const getUserByIdQuery = new AQLBuilder<AppSchema>()
     .for('u')
     .in('users')
@@ -44,7 +38,6 @@ operations.push(generateOpenApiSpec(getUserByIdQuery, {
     tags: ['Users']
 }));
 
-// Combine operations into a single OpenAPI document
 const openApiDoc = {
     openapi: '3.0.0',
     info: {
@@ -55,7 +48,6 @@ const openApiDoc = {
     paths: {} as Record<string, any>
 };
 
-// Merge paths
 operations.forEach(op => {
     Object.entries(op.paths).forEach(([pathKey, methods]) => {
         if (!openApiDoc.paths[pathKey]) {

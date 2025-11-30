@@ -5,8 +5,6 @@ import { DatabaseSchema, EdgeSchema } from './types';
  * Used across multiple test files to ensure consistency
  */
 
-// --- Common Document Types ---
-
 export interface Address {
     street: string;
     city: string;
@@ -54,8 +52,6 @@ export interface Product {
     onSale?: boolean;
 }
 
-// --- Edge Types ---
-
 export interface FriendsEdge extends EdgeSchema {
     since: string;
     strength?: number;
@@ -70,11 +66,6 @@ export interface PurchaseEdge extends EdgeSchema {
     date: string;
 }
 
-// --- Database Schemas ---
-
-/**
- * Basic test schema with users, orders, products, and social edges
- */
 export interface TestSchema extends DatabaseSchema {
     users: User;
     orders?: Order;

@@ -53,72 +53,72 @@ export class ExpressionBuilder<T = any> {
   /**
    * Equals comparison (==)
    */
-  eq(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  eq(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '==',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
   /**
    * Not equals comparison (!=)
    */
-  neq(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  neq(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '!=',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
   /**
    * Less than comparison (<)
    */
-  lt(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  lt(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '<',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
   /**
    * Less than or equal comparison (<=)
    */
-  lte(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  lte(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '<=',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
   /**
    * Greater than comparison (>)
    */
-  gt(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  gt(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '>',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
   /**
    * Greater than or equal comparison (>=)
    */
-  gte(value: AqlValue | ExpressionBuilder): ExpressionBuilder<boolean> {
+  gte(value: T | ExpressionBuilder<T>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: '>=',
       left: this.expression,
-      right: toExpression(value)
+      right: toExpression(value as any)
     });
   }
 
@@ -213,12 +213,12 @@ export class ExpressionBuilder<T = any> {
   /**
    * IN operator
    */
-  in(values: AqlValue[] | ExpressionBuilder): ExpressionBuilder<boolean> {
+  in(values: T[] | ExpressionBuilder<T[]>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: 'IN',
       left: this.expression,
-      right: Array.isArray(values) ? { type: 'literal', value: values } : toExpression(values)
+      right: Array.isArray(values) ? { type: 'literal', value: values } : toExpression(values as any)
     });
   }
 
@@ -249,7 +249,7 @@ export class ExpressionBuilder<T = any> {
   /**
   * NOT IN operator
   */
-  notIn(values: AqlValue[] | ExpressionBuilder): ExpressionBuilder<boolean> {
+  notIn(values: T[] | ExpressionBuilder<T[]>): ExpressionBuilder<boolean> {
     return new ExpressionBuilder({
       type: 'binary',
       operator: 'NOT IN',
@@ -257,7 +257,7 @@ export class ExpressionBuilder<T = any> {
       right: Array.isArray(values) ? {
         type: 'literal',
         value: values
-      } : toExpression(values)
+      } : toExpression(values as any)
     });
   }
 

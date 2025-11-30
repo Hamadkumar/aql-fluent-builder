@@ -296,6 +296,10 @@ Used to build AQL expressions.
 - **Array**: `LENGTH`, `FIRST`, `LAST`, `UNIQUE`, `UNION`
 - **Math**: `FLOOR`, `CEIL`, `ROUND`, `RAND`, `ABS`
 
+## AI Assistant Prompt
+
+If you are using an AI assistant (like ChatGPT, Claude, or GitHub Copilot) to help you write queries, you can use the [AQL_TO_DSL_PROMPT.md](./AQL_TO_DSL_PROMPT.md) file. Paste its content into your AI chat to teach it how to convert raw AQL into this fluent builder DSL with strict type safety.
+
 ## Funding
 
 If you find this project useful, please consider supporting it:
